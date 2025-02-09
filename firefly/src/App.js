@@ -52,7 +52,7 @@ function App() {
   return (
     <Container style={{ marginTop: "20px", marginBottom: "40px" }}>
       <Typography variant="h3" align="center" gutterBottom>
-        IoT Device Discovery
+        FireFly - IoT Device Discovery
       </Typography>
 
       <Grid container spacing={2} justifyContent="center" alignItems="center">
