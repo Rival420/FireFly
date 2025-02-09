@@ -1,3 +1,4 @@
+# FireFly - IoT Discovery Tool
 FireFly is a modular, multi-protocol IoT device discovery framework that allows you to scan your network for devices using several auto-discovery protocols:
 - **UPnP (SSDP)**
 - **mDNS (via Zeroconf)**
@@ -86,4 +87,4 @@ For example:
 `http://<backend_ip>:8000/api/discover?protocol=upnp&timeout=5&mdns_service=_services._dns-sd._udp.local.`
 
 Contributing
-Contributions are welcome! Please feel free to open issues or submit pull requests. When contributing, try to follow the modular design 
+Contributions are welcome! Please feel free to open issues or submit pull requests. When contributing, try to follow the modular design  of the project so that new discovery protocols or front-end enhancements integrate smoothly.
