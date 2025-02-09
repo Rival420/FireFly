@@ -1,2 +1,0 @@
-# FireFly
-IOT Discovery tool
