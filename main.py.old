@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+import argparse
+from protocols import upnp, mdns, ws_discovery
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="IoT Device Discovery Tool using auto discovery protocols"
+    )
+    subparsers = parser.add_subparsers(dest="protocol", help="Select a discovery protocol")
+
+    # UPnP Subcommand
+    parser_upnp = subparsers.add_parser("upnp", help="Discover devices using UPnP")
+    parser_upnp.add_argument("--timeout", type=int, default=5, help="Timeout for discovery (in seconds)")
+
+    # mDNS Subcommand
+    parser_mdns = subparsers.add_parser("mdns", help="Discover devices using mDNS")
+    parser_mdns.add_argument("--timeout", type=int, default=5, help="Timeout for discovery (in seconds)")
+    parser_mdns.add_argument("--mdns-service", type=str, default="_services._dns-sd._udp.local.",
+                             help="Service type for mDNS discovery (use 'All' to cycle through common services)")
+
+    # WS-Discovery Subcommand
+    parser_wsd = subparsers.add_parser("wsd", help="Discover devices using WS-Discovery")
+    parser_wsd.add_argument("--timeout", type=int, default=5, help="Timeout for discovery (in seconds)")
+
+    # If no subcommand is provided, run all protocols.
+    args = parser.parse_args()
+    
+    if args.protocol is None:
+        print("[*] Running all discovery methods...\n")
+        upnp_results = upnp.UPnPDiscovery(timeout=args.timeout).discover()
+        print(f"[*] UPnP found {len(upnp_results)} device(s).")
+        
+        # For mDNS, cycle through services if "All" is specified.
+        mdns_results = []
+        if args.mdns_service.lower() == "all":
+            well_known_services = [
+                "_services._dns-sd._udp.local.",
+                "_http._tcp.local.",
+                "_workstation._tcp.local.",
+                "_ipp._tcp.local.",
+                "_printer._tcp.local."
+            ]
+            for service in well_known_services:
+                print(f"[*] Querying mDNS service: {service}")
+                mdns_results.extend(mdns.MDNSDiscovery(timeout=args.timeout, service_type=service).discover())
+        else:
+            mdns_results = mdns.MDNSDiscovery(timeout=args.timeout, service_type=args.mdns_service).discover()
+        print(f"[*] mDNS found {len(mdns_results)} service(s).")
+        
+        wsd_results = ws_discovery.WSDiscovery(timeout=args.timeout).discover()
+        print(f"[*] WS-Discovery found {len(wsd_results)} device(s).")
+    
+    else:
+        if args.protocol == "upnp":
+            results = upnp.UPnPDiscovery(timeout=args.timeout).discover()
+            print(f"[*] UPnP found {len(results)} device(s).")
+        elif args.protocol == "mdns":
+            if args.mdns_service.lower() == "all":
+                well_known_services = [
+                    "_services._dns-sd._udp.local.",
+                    "_http._tcp.local.",
+                    "_workstation._tcp.local.",
+                    "_ipp._tcp.local.",
+                    "_printer._tcp.local."
+                ]
+                results = []
+                for service in well_known_services:
+                    print(f"[*] Querying mDNS service: {service}")
+                    results.extend(mdns.MDNSDiscovery(timeout=args.timeout, service_type=service).discover())
+            else:
+                results = mdns.MDNSDiscovery(timeout=args.timeout, service_type=args.mdns_service).discover()
+            print(f"[*] mDNS found {len(results)} service(s).")
+        elif args.protocol == "wsd":
+            results = ws_discovery.WSDiscovery(timeout=args.timeout).discover()
+            print(f"[*] WS-Discovery found {len(results)} device(s).")
+    
+    # You can add code here to process or forward the results to a front-end.
+    # For now, we'll simply print them.
+    print("\nDiscovery Results:")
+    # (Printing logic goes here...)
+
+if __name__ == "__main__":
+    main()
