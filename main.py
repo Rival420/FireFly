@@ -22,13 +22,22 @@ app.add_middleware(
 def discover(
     protocol: str = Query("all", description="Discovery protocol: upnp, mdns, wsd, or all"),
     timeout: int = Query(5, description="Timeout for discovery (in seconds)"),
-    mdns_service: str = Query("_services._dns-sd._udp.local.", description="Service type for mDNS (if protocol is mdns)")
+    mdns_service: str = Query("_services._dns-sd._udp.local.", description="Service type for mDNS (if protocol is mdns)"),
+    upnp_st: str = Query("ssdp:all", description="Search target (ST) for UPnP discovery"),
+    upnp_mx: int = Query(3, description="MX value for UPnP discovery"),
+    upnp_ttl: int = Query(2, description="Multicast TTL for UPnP discovery")
 ):
     results = {}
 
-    # UPnP Discovery
+    # UPnP Discovery with extended parameters
     if protocol in ("all", "upnp"):
-        upnp_results = upnp.UPnPDiscovery(timeout=timeout).discover()
+        upnp_results = upnp.UPnPDiscovery(
+            timeout=timeout,
+            st=upnp_st,
+            mx=upnp_mx,
+            multicast_ttl=upnp_ttl,
+            verbose=False  # Set to True for detailed logging
+        ).discover()
         results["upnp"] = upnp_results
 
     # mDNS Discovery

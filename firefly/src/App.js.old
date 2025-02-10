@@ -15,21 +15,15 @@ import {
   CircularProgress,
 } from "@mui/material";
 
-// Use an environment variable for the API URL or default to localhost.
+// Use the environment variable or fallback to localhost.
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 function App() {
-  // Existing state variables
   const [devices, setDevices] = useState({});
   const [loading, setLoading] = useState(false);
   const [protocol, setProtocol] = useState("all");
   const [timeoutVal, setTimeoutVal] = useState(5);
   const [mdnsService, setMdnsService] = useState("_services._dns-sd._udp.local.");
-
-  // New state variables for UPnP options
-  const [upnpST, setUpnpST] = useState("ssdp:all");
-  const [upnpMX, setUpnpMX] = useState(3);
-  const [upnpTTL, setUpnpTTL] = useState(2);
 
   const fetchDevices = async () => {
     setLoading(true);
@@ -39,9 +33,6 @@ function App() {
           protocol: protocol,
           timeout: timeoutVal,
           mdns_service: mdnsService,
-          upnp_st: upnpST,
-          upnp_mx: upnpMX,
-          upnp_ttl: upnpTTL,
         },
       });
       setDevices(response.data);
@@ -52,19 +43,19 @@ function App() {
     }
   };
 
-  // Fetch on component mount (optional)
+  // Fetch on component mount.
   useEffect(() => {
     fetchDevices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <Container style={{ marginTop: "20px", marginBottom: "40px" }}>
       <Typography variant="h3" align="center" gutterBottom>
-        IoT Device Discovery
+        FireFly - IoT Device Discovery
       </Typography>
 
       <Grid container spacing={2} justifyContent="center" alignItems="center">
-        {/* Protocol Selection */}
         <Grid item xs={12} sm={3}>
           <FormControl fullWidth>
             <InputLabel id="protocol-label">Protocol</InputLabel>
@@ -82,8 +73,7 @@ function App() {
           </FormControl>
         </Grid>
 
-        {/* mDNS Service Field */}
-        {(protocol === "all" || protocol === "mdns") && (
+        {(protocol === "mdns" || protocol === "all") && (
           <Grid item xs={12} sm={3}>
             <TextField
               fullWidth
@@ -95,53 +85,16 @@ function App() {
           </Grid>
         )}
 
-        {/* UPnP Fields: Only show when protocol is "all" or "upnp" */}
-        {(protocol === "all" || protocol === "upnp") && (
-          <>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                fullWidth
-                label="UPnP ST"
-                value={upnpST}
-                onChange={(e) => setUpnpST(e.target.value)}
-                helperText='Search Target (e.g., "ssdp:all" or "upnp:rootdevice")'
-              />
-            </Grid>
-            <Grid item xs={12} sm={2}>
-              <TextField
-                fullWidth
-                type="number"
-                label="UPnP MX"
-                value={upnpMX}
-                onChange={(e) => setUpnpMX(Number(e.target.value))}
-                helperText="MX (max wait time)"
-              />
-            </Grid>
-            <Grid item xs={12} sm={2}>
-              <TextField
-                fullWidth
-                type="number"
-                label="UPnP TTL"
-                value={upnpTTL}
-                onChange={(e) => setUpnpTTL(Number(e.target.value))}
-                helperText="Multicast TTL"
-              />
-            </Grid>
-          </>
-        )}
-
-        {/* Timeout Field */}
         <Grid item xs={12} sm={2}>
           <TextField
             fullWidth
             type="number"
             label="Timeout (s)"
             value={timeoutVal}
-            onChange={(e) => setTimeoutVal(Number(e.target.value))}
+            onChange={(e) => setTimeoutVal(e.target.value)}
           />
         </Grid>
 
-        {/* Scan Button */}
         <Grid item xs={12} sm={2}>
           <Button
             variant="contained"
@@ -155,7 +108,6 @@ function App() {
         </Grid>
       </Grid>
 
-      {/* Display the discovered devices */}
       <div style={{ marginTop: "40px" }}>
         {Object.keys(devices).length === 0 ? (
           <Typography variant="h6" align="center">
@@ -225,3 +177,4 @@ function App() {
 }
 
 export default App;
+
