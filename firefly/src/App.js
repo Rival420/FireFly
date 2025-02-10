@@ -38,18 +38,21 @@ const darkTheme = createTheme({
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 function App() {
-  // State variables for discovery
+  // State for discovery results and loading indicator.
   const [devices, setDevices] = useState({});
   const [loading, setLoading] = useState(false);
+
+  // General discovery settings.
   const [protocol, setProtocol] = useState("all");
   const [timeoutVal, setTimeoutVal] = useState(5);
   const [mdnsService, setMdnsService] = useState("_services._dns-sd._udp.local.");
 
-  // New state variables for UPnP options
+  // UPnP-specific options.
   const [upnpST, setUpnpST] = useState("ssdp:all");
   const [upnpMX, setUpnpMX] = useState(3);
   const [upnpTTL, setUpnpTTL] = useState(2);
 
+  // Fetch devices from the API.
   const fetchDevices = async () => {
     setLoading(true);
     try {
@@ -71,7 +74,7 @@ function App() {
     }
   };
 
-  // Optionally auto-fetch on mount
+  // Optionally auto-fetch on mount.
   useEffect(() => {
     // fetchDevices();
   }, []);
@@ -170,11 +173,7 @@ function App() {
               onClick={fetchDevices}
               disabled={loading}
             >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                "Scan"
-              )}
+              {loading ? <CircularProgress size={24} color="inherit" /> : "Scan"}
             </Button>
           </Grid>
         </Grid>
@@ -202,33 +201,35 @@ function App() {
                           </Typography>
                           <Typography variant="body2">
                             <strong>Type:</strong>{" "}
-                            {device.type ? device.type : "N/A"}
+                            {device.type
+                              ? device.type
+                              : device.ST
+                              ? device.ST
+                              : "N/A"}
                           </Typography>
                           {device.address && (
                             <Typography variant="body2">
                               <strong>Address:</strong> {device.address}
                             </Typography>
                           )}
-                          {device.port && (
+                          {device.LOCATION && (
                             <Typography variant="body2">
-                              <strong>Port:</strong> {device.port}
+                              <strong>Location:</strong> {device.LOCATION}
                             </Typography>
                           )}
-                          {device.properties && (
+                          {device.USN && (
                             <Typography variant="body2">
-                              <strong>Properties:</strong>{" "}
-                              {JSON.stringify(device.properties)}
+                              <strong>USN:</strong> {device.USN}
+                            </Typography>
+                          )}
+                          {device.SERVER && (
+                            <Typography variant="body2">
+                              <strong>Server:</strong> {device.SERVER}
                             </Typography>
                           )}
                           {device.response && (
                             <Typography variant="body2" className="long-text">
                               <strong>Response:</strong> {device.response}
-                            </Typography>
-                          )}
-                          {device.queried_service && (
-                            <Typography variant="body2">
-                              <strong>Queried Service:</strong>{" "}
-                              {device.queried_service}
                             </Typography>
                           )}
                         </CardContent>
