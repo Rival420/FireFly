@@ -48,7 +48,7 @@ It comes with a **FastAPI** backend that exposes a REST API for device discovery
    pip install -r requirements.txt
    ```
 
-### Frontend setp
+### Frontend Setup
 
 3. **Navigate to the Frontend Directory:**
 
