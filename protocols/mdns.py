@@ -77,6 +77,10 @@ class MDNSDiscovery:
                     "properties": info.properties
                 }
                 self.services[name] = service_data
+            else:
+                # If we can't fetch updated info keep a minimal record so the
+                # service doesn't disappear from the results
+                self.services[name] = {"name": name, "type": service_type}
 
     def discover(self):
         """
