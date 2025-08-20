@@ -6,13 +6,17 @@ Purpose: Discover UPnP devices using SSDP and enrich device info by fetching dev
 import socket
 import time
 import logging
-import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
+import ipaddress
+from defusedxml import ElementTree as ET
 import requests  # Make sure to install requests (pip install requests)
+
+logger = logging.getLogger("firefly")
 
 class UPnPDiscovery:
     MULTICAST_GROUP = ("239.255.255.250", 1900)
 
-    def __init__(self, timeout=5, st="ssdp:all", mx=3, multicast_ttl=2, verbose=False):
+    def __init__(self, timeout=5, st="ssdp:all", mx=3, multicast_ttl=2, verbose=False, interface_ip=None):
         """
         Initialize the UPnP discovery instance.
 
@@ -27,6 +31,7 @@ class UPnPDiscovery:
         self.mx = mx
         self.multicast_ttl = multicast_ttl
         self.verbose = verbose
+        self.interface_ip = interface_ip
 
         if self.verbose:
             logging.basicConfig(level=logging.DEBUG)
@@ -54,6 +59,18 @@ class UPnPDiscovery:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.settimeout(self.timeout)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, self.multicast_ttl)
+        # If a specific interface is requested, bind and set multicast interface
+        if self.interface_ip:
+            try:
+                sock.bind((self.interface_ip, 0))
+                sock.setsockopt(
+                    socket.IPPROTO_IP,
+                    socket.IP_MULTICAST_IF,
+                    socket.inet_aton(self.interface_ip),
+                )
+            except Exception as bind_err:
+                if self.verbose:
+                    logging.debug("Failed to bind to interface %s: %s", self.interface_ip, bind_err)
 
         try:
             sock.sendto(message.encode("utf-8"), self.MULTICAST_GROUP)
@@ -109,9 +126,30 @@ class UPnPDiscovery:
         if not location:
             return
 
+        # Basic SSRF protections: only fetch http/https, and only to private or link-local targets.
         try:
-            # Fetch the device description XML with a short timeout.
-            response = requests.get(location, timeout=3)
+            parsed = urlparse(location)
+            if parsed.scheme not in ("http", "https"):
+                return
+            host = parsed.hostname
+            if not host:
+                return
+            try:
+                ip = ipaddress.ip_address(host)
+            except ValueError:
+                # Resolve hostname to IP
+                try:
+                    resolved = socket.gethostbyname(host)
+                    ip = ipaddress.ip_address(resolved)
+                except Exception:
+                    return
+
+            if not (ip.is_private or ip.is_link_local or ip.is_loopback):
+                return
+
+            session = requests.Session()
+            session.trust_env = False  # ignore proxies
+            response = session.get(location, timeout=3, allow_redirects=False)
             if response.status_code == 200:
                 xml_content = response.text
                 root = ET.fromstring(xml_content)

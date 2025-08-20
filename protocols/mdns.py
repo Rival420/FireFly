@@ -5,6 +5,7 @@ Purpose: Discover mDNS services using the Zeroconf library.
 
 import socket
 import time
+import logging
 
 try:
     from zeroconf import Zeroconf, ServiceBrowser, BadTypeInNameException
@@ -12,8 +13,11 @@ except ImportError:
     print("[!] Zeroconf library not found. Please install it via: pip install zeroconf")
     raise
 
+logger = logging.getLogger("firefly")
+
+
 class MDNSDiscovery:
-    def __init__(self, timeout=5, service_type="_services._dns-sd._udp.local."):
+    def __init__(self, timeout=5, service_type="_services._dns-sd._udp.local.", interface_ip=None):
         """
         Initialize the mDNS discovery instance.
         
@@ -23,6 +27,7 @@ class MDNSDiscovery:
         """
         self.timeout = timeout
         self.service_type = service_type
+        self.interface_ip = interface_ip
 
     class MDNSListener:
         def __init__(self):
@@ -37,7 +42,7 @@ class MDNSDiscovery:
             try:
                 info = zeroconf.get_service_info(service_type, name)
             except Exception as e:
-                print(f"[MDNS] Error fetching service info for {name} ({service_type}): {e}")
+                logger.debug(f"[MDNS] Error fetching service info for {name} ({service_type}): {e}")
                 info = None
 
             if info:
@@ -65,7 +70,7 @@ class MDNSDiscovery:
             try:
                 info = zeroconf.get_service_info(service_type, name)
             except Exception as e:
-                print(f"[MDNS] Error updating service info for {name}: {e}")
+                logger.debug(f"[MDNS] Error updating service info for {name}: {e}")
                 info = None
 
             if info:
@@ -89,7 +94,14 @@ class MDNSDiscovery:
         :return: A list of dictionaries containing discovered service information.
         """
         discovered = []
-        zeroconf = Zeroconf()
+        try:
+            if self.interface_ip:
+                zeroconf = Zeroconf(interfaces=[self.interface_ip])
+            else:
+                zeroconf = Zeroconf()
+        except Exception as e:
+            logger.debug("Failed to initialize Zeroconf: %s", e)
+            return discovered
         listener = self.MDNSListener()
 
         try:
@@ -101,7 +113,10 @@ class MDNSDiscovery:
 
         # Wait for services to be discovered.
         time.sleep(self.timeout)
-        zeroconf.close()
+        try:
+            zeroconf.close()
+        except Exception:
+            pass
 
         # Collect discovered service data.
         for service in listener.services.values():

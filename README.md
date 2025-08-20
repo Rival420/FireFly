@@ -90,3 +90,14 @@ For example:
 
 Contributing
 Contributions are welcome! Please feel free to open issues or submit pull requests. When contributing, try to follow the modular design  of the project so that new discovery protocols or front-end enhancements integrate smoothly.
+
+---
+
+Security notes:
+- Only use this tool on networks you own or have explicit permission to test.
+- Backend applies SSRF safeguards for UPnP `LOCATION` fetches, configurable CORS, and strict input validation.
+- Prefer running in an isolated lab when experimenting with offensive techniques.
+
+Additional API parameters:
+- `upnp_st`, `upnp_mx`, `upnp_ttl`: UPnP tuning parameters
+- `interface_ip`: Optional local IP to bind discovery sockets (non-loopback)

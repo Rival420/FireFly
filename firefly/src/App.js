@@ -13,6 +13,10 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  Snackbar,
+  Alert,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import "./App.css";
@@ -41,11 +45,14 @@ function App() {
   // State for discovery results and loading indicator.
   const [devices, setDevices] = useState({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showRaw, setShowRaw] = useState(false);
 
   // General discovery settings.
   const [protocol, setProtocol] = useState("all");
   const [timeoutVal, setTimeoutVal] = useState(5);
   const [mdnsService, setMdnsService] = useState("_services._dns-sd._udp.local.");
+  const [interfaceIp, setInterfaceIp] = useState("");
 
   // UPnP-specific options.
   const [upnpST, setUpnpST] = useState("ssdp:all");
@@ -64,11 +71,17 @@ function App() {
           upnp_st: upnpST,
           upnp_mx: upnpMX,
           upnp_ttl: upnpTTL,
+          interface_ip: interfaceIp || undefined,
         },
       });
       setDevices(response.data);
+      localStorage.setItem(
+        "firefly_settings",
+        JSON.stringify({ protocol, timeoutVal, mdnsService, upnpST, upnpMX, upnpTTL, interfaceIp })
+      );
     } catch (error) {
       console.error("Error fetching devices:", error);
+      setError(error?.response?.data?.detail || error.message || "Request failed");
     } finally {
       setLoading(false);
     }
@@ -76,8 +89,61 @@ function App() {
 
   // Optionally auto-fetch on mount.
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem("firefly_settings");
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.protocol) setProtocol(s.protocol);
+        if (s.timeoutVal) setTimeoutVal(s.timeoutVal);
+        if (s.mdnsService) setMdnsService(s.mdnsService);
+        if (s.upnpST) setUpnpST(s.upnpST);
+        if (s.upnpMX) setUpnpMX(s.upnpMX);
+        if (s.upnpTTL) setUpnpTTL(s.upnpTTL);
+        if (s.interfaceIp) setInterfaceIp(s.interfaceIp);
+      }
+    } catch (_) {}
     // fetchDevices();
   }, []);
+
+  const download = (filename, text) => {
+    const element = document.createElement("a");
+    element.setAttribute(
+      "href",
+      "data:text/plain;charset=utf-8," + encodeURIComponent(text)
+    );
+    element.setAttribute("download", filename);
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const exportJson = () => download("firefly_results.json", JSON.stringify(devices, null, 2));
+  const exportCsv = () => {
+    try {
+      const rows = [];
+      Object.entries(devices).forEach(([proto, list]) => {
+        list.forEach((d) => {
+          rows.push({ proto, ...d });
+        });
+      });
+      if (!rows.length) return;
+      const headers = Array.from(
+        rows.reduce((set, row) => {
+          Object.keys(row).forEach((k) => set.add(k));
+          return set;
+        }, new Set())
+      );
+      const csv = [headers.join(",")]
+        .concat(
+          rows.map((r) => headers.map((h) => JSON.stringify(r[h] ?? "")).join(","))
+        )
+        .join("\n");
+      download("firefly_results.csv", csv);
+    } catch (e) {
+      setError("Export failed");
+    }
+  };
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -164,6 +230,17 @@ function App() {
             />
           </Grid>
 
+          {/* Interface IP */}
+          <Grid item xs={12} sm={3}>
+            <TextField
+              fullWidth
+              label="Interface IP"
+              value={interfaceIp}
+              onChange={(e) => setInterfaceIp(e.target.value)}
+              helperText="Optional local IP to bind"
+            />
+          </Grid>
+
           {/* Scan Button */}
           <Grid item xs={12} sm={2}>
             <Button
@@ -174,6 +251,26 @@ function App() {
               disabled={loading}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : "Scan"}
+            </Button>
+          </Grid>
+        </Grid>
+
+        {/* Toggles & Actions */}
+        <Grid container spacing={2} style={{ marginTop: "20px" }}>
+          <Grid item xs={12} sm={3}>
+            <FormControlLabel
+              control={<Switch checked={showRaw} onChange={(e) => setShowRaw(e.target.checked)} />}
+              label="Show Raw JSON"
+            />
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <Button variant="outlined" fullWidth onClick={exportJson} disabled={!Object.keys(devices).length}>
+              Export JSON
+            </Button>
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <Button variant="outlined" fullWidth onClick={exportCsv} disabled={!Object.keys(devices).length}>
+              Export CSV
             </Button>
           </Grid>
         </Grid>
@@ -241,6 +338,18 @@ function App() {
             ))
           )}
         </div>
+
+        {showRaw && (
+          <pre style={{ marginTop: 20, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {JSON.stringify(devices, null, 2)}
+          </pre>
+        )}
+
+        <Snackbar open={!!error} autoHideDuration={6000} onClose={() => setError("")}>
+          <Alert onClose={() => setError("")} severity="error" sx={{ width: "100%" }}>
+            {error}
+          </Alert>
+        </Snackbar>
       </Container>
     </ThemeProvider>
   );
