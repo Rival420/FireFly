@@ -38,8 +38,10 @@ const darkTheme = createTheme({
   },
 });
 
-// Use an environment variable for the API URL or default to localhost.
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// Use an environment variable for the API URL or default to same host on port 8000.
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  `${window.location.protocol}//${window.location.hostname}:8000`;
 
 function App() {
   // State for discovery results and loading indicator.
