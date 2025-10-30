@@ -22,6 +22,28 @@ services:
     cap_drop:
       - ALL
     read_only: true
+
+  # Optional Linux-only variant: backend with host networking for multicast
+  backend_hostnet:
+    build: .
+    container_name: firefly-backend-host
+    network_mode: host
+    environment:
+      - LOG_LEVEL=INFO
+      - DEFAULT_TIMEOUT=5
+      - MAX_TIMEOUT=30
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys, socket; socket.setdefaulttimeout(2); r=urllib.request.urlopen('http://127.0.0.1:8000/api/readyz'); sys.exit(0 if r.status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    profiles: ["hostnet"]
   frontend:
     build:
       context: ./firefly

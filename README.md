@@ -36,6 +36,23 @@ docker compose up --build -d
 # Backend:  http://localhost:8000
 ```
 
+#### Linux: Host networking profile (improves multicast reach)
+This uses a separate backend service that runs with `network_mode: host`.
+
+```bash
+# Start host-networked backend + normal frontend
+docker compose --profile hostnet up --build -d backend_hostnet frontend
+
+# Stop
+docker compose --profile hostnet down
+```
+
+Note: `network_mode: host` is only supported on Linux. On macOS/Windows, run the backend on the host instead:
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+docker compose up --build -d frontend
+```
+
 ### Run as Docker images (separate containers)
 Backend image:
 ```bash
