@@ -1,19 +1,40 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from protocols import upnp, mdns, ws_discovery
-from schemas import DiscoverQuery, DiscoverResponse
+from schemas import DiscoverQuery, DiscoverResponse, ErrorResponse
 from config import get_settings
 import logging
 import ipaddress
+from fastapi.openapi.utils import get_openapi
 
 app = FastAPI(
-    title="IoT Device Discovery API",
+    title="FireFly IoT Discovery API",
     version="1.0",
-    description="A REST API to discover IoT devices using UPnP, mDNS, and WS-Discovery."
+    summary="Modular multi-protocol IoT discovery (UPnP, mDNS, WS-Discovery)",
+    description=(
+        "FireFly exposes a safe, modular API to discover devices on local networks "
+        "using UPnP/SSDP, mDNS/Zeroconf, and WS-Discovery with strong input validation "
+        "and SSRF guardrails for enrichment."
+    ),
+    terms_of_service="https://example.com/terms",
+    contact={
+        "name": "FireFly Team",
+        "url": "https://example.com/firefly",
+        "email": "support@example.com",
+    },
+    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 settings = get_settings()
+
+# Readiness flag
+app.state.ready = False
+app.state.health_metrics = {"healthz": 0, "readyz_ok": 0, "readyz_fail": 0}
+app.state.rate_limits = {}
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
@@ -28,13 +49,128 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+openapi_tags = [
+    {"name": "health", "description": "Service liveness and readiness"},
+    {"name": "discovery", "description": "IoT device discovery endpoints"},
+    {"name": "metrics", "description": "Operational metrics"},
+]
 
-@app.get("/api/health", response_model=dict)
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        summary=app.summary,
+        description=app.description,
+        routes=app.routes,
+    )
+    openapi_schema["tags"] = openapi_tags
+    openapi_schema["servers"] = [
+        {"url": "http://localhost:8000", "description": "Local development"},
+        {"url": "http://firefly-backend:8000", "description": "Docker Compose"},
+    ]
+    openapi_schema["externalDocs"] = {
+        "description": "Project README",
+        "url": "https://github.com/Rival420/FireFly",
+    }
+    openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {}).update(
+        {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "description": "Optional API key header when enabled by deployment",
+            }
+        }
+    )
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore[assignment]
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    app.state.ready = True
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    app.state.ready = False
+
+
+@app.get("/api/health", response_model=dict, tags=["health"], summary="Basic health check")
 def health() -> dict:
+    app.state.health_metrics["healthz"] += 1
     return {"status": "ok"}
 
 
-@app.get("/api/discover", response_model=DiscoverResponse)
+@app.get("/api/healthz", response_model=dict, tags=["health"], summary="Liveness probe")
+def healthz() -> dict:
+    app.state.health_metrics["healthz"] += 1
+    return {"status": "ok"}
+
+
+@app.get(
+    "/api/readyz",
+    response_model=dict,
+    tags=["health"],
+    summary="Readiness probe",
+    responses={
+        200: {"description": "Service is ready"},
+        503: {"model": ErrorResponse, "description": "Service not ready"},
+    },
+)
+def readyz() -> JSONResponse:
+    if getattr(app.state, "ready", False):
+        app.state.health_metrics["readyz_ok"] += 1
+        return JSONResponse(status_code=200, content={"ready": True})
+    app.state.health_metrics["readyz_fail"] += 1
+    return JSONResponse(status_code=503, content={"ready": False, "detail": "initializing"})
+
+
+@app.get("/api/metrics/health", response_model=dict, tags=["metrics"], summary="Health endpoint counters")
+def health_metrics() -> dict:
+    # Simple JSON metrics stub; intended for future Prometheus export
+    return app.state.health_metrics
+
+
+def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if settings.api_key and x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def rate_limit(request: Request) -> None:
+    # Very simple in-memory rate limiter (per-client): max 10 req per 60s
+    import time
+
+    window_seconds = 60
+    max_requests = 10
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    bucket = app.state.rate_limits.setdefault(client_ip, [])
+    # drop timestamps older than window
+    app.state.rate_limits[client_ip] = [t for t in bucket if now - t < window_seconds]
+    if len(app.state.rate_limits[client_ip]) >= max_requests:
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+    app.state.rate_limits[client_ip].append(now)
+
+
+@app.get(
+    "/api/discover",
+    response_model=DiscoverResponse,
+    tags=["discovery"],
+    summary="Discover devices across selected protocols",
+    responses={
+        200: {"description": "Discovery results grouped by protocol"},
+        400: {"model": ErrorResponse, "description": "Invalid input parameters"},
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
+        429: {"model": ErrorResponse, "description": "Too Many Requests"},
+    },
+)
 def discover(
     protocol: str = Query("all", description="upnp|mdns|wsd|all"),
     timeout: int = Query(None, description="Timeout seconds (1-300)"),
@@ -43,6 +179,8 @@ def discover(
     upnp_mx: int = Query(3, description="UPnP MX (1-5)"),
     upnp_ttl: int = Query(2, description="Multicast TTL (1-16)"),
     interface_ip: str = Query(None, description="Optional interface IP to bind to"),
+    _=Depends(verify_api_key),
+    __=Depends(rate_limit),
 ):
     # Validate and normalize inputs using Pydantic schema
     try:

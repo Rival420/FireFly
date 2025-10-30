@@ -65,6 +65,20 @@ FireFly is a modular IoT device discovery tool composed of:
   - Base: `node:18-alpine`
   - `npm ci`, dev server on `0.0.0.0:3000` using CRA.
 
+### Healthchecks
+- Endpoints:
+  - `GET /api/healthz` (liveness, always 200 when process is up)
+  - `GET /api/readyz` (readiness, 200 after startup events, 503 during shutdown)
+- Dockerfile (backend) includes a `HEALTHCHECK` against `/api/healthz`.
+- Docker Compose healthchecks:
+  - Backend: checks `/api/readyz` inside the container.
+  - Frontend: checks `http://127.0.0.1:3000` inside the container.
+
+### Metrics (stub)
+- Endpoint: `GET /api/metrics/health` returns JSON counters for health endpoints:
+  - `healthz`, `readyz_ok`, `readyz_fail`.
+- This is a lightweight stub to support future Prometheus instrumentation.
+
 ## Data Flow
 1. Frontend issues `GET /api/discover` with selected options.
 2. Backend validates parameters (`schemas.py`), normalizes effective timeout (`config.py`).
@@ -74,8 +88,11 @@ FireFly is a modular IoT device discovery tool composed of:
 ## Security Considerations
 - SSRF mitigations when fetching UPnP `LOCATION`:
   - Only http/https; validate destination IP (private/link-local/loopback); do not follow redirects; ignore proxies.
+  - Enforce Content-Type (XML) and max response size (1 MiB); send explicit UA.
 - CORS restricted to development origins by default; configurable via `ALLOWED_ORIGINS`.
 - Loopback binding explicitly rejected for `interface_ip` on `/api/discover`.
+ - Optional API key: when `API_KEY` is set, `/api/discover` requires header `X-API-Key`.
+ - Basic rate limiting: 10 requests per 60s per client for `/api/discover`.
 
 ## Operational Notes
 - Multicast discovery inside containers may require host networking or additional Docker config in some environments. Current Compose uses bridge networking which is fine for many setups, but for broader network segment discovery you may consider `network_mode: host` (Linux) or run backend on the host.
@@ -85,6 +102,16 @@ FireFly is a modular IoT device discovery tool composed of:
 - Backend: `python main.py` or `uvicorn main:app --reload`.
 - Frontend: `cd firefly && npm start`.
 - Docker: `docker compose up --build -d` then visit `http://localhost:3000`.
+
+## API Documentation (Swagger / OpenAPI)
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- OpenAPI JSON: `http://localhost:8000/openapi.json`
+- OpenAPI enrichments:
+  - Tags: `health`, `discovery`, `metrics`
+  - Servers: localhost and Docker Compose service URL
+  - SecuritySchemes: `ApiKeyAuth` (header `X-API-Key`, optional, documented)
+  - Contact, License, TOS metadata configured
 
 ## Known Limitations
 - Discovery fidelity may vary in containerized environments due to multicast forwarding.

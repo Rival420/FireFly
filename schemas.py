@@ -3,6 +3,11 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, constr, conint
 
 
+class ErrorResponse(BaseModel):
+    detail: str = Field(description="Human-readable error message")
+    code: Optional[str] = Field(default=None, description="Optional machine-readable error code")
+
+
 class DiscoverQuery(BaseModel):
     protocol: constr(strip_whitespace=True, to_lower=True) = Field(
         default="all",

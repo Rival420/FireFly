@@ -13,6 +13,7 @@ class AppSettings(BaseModel):
     upnp_default_st: str = Field(default=os.getenv("UPNP_DEFAULT_ST", "ssdp:all"))
     upnp_default_mx: int = Field(default=int(os.getenv("UPNP_DEFAULT_MX", "3")))
     upnp_default_ttl: int = Field(default=int(os.getenv("UPNP_DEFAULT_TTL", "2")))
+    api_key: str | None = Field(default=os.getenv("API_KEY"))
 
 
 def get_settings() -> AppSettings:

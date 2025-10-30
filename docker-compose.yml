@@ -11,9 +11,22 @@ services:
       - MAX_TIMEOUT=30
     networks:
       - firefly
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys, socket; socket.setdefaulttimeout(2); r=urllib.request.urlopen('http://127.0.0.1:8000/api/readyz'); sys.exit(0 if r.status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
   frontend:
     build:
       context: ./firefly
+      args:
+        USE_NPM_CI: "false"
     container_name: firefly-frontend
     ports:
       - "3000:3000"
@@ -23,5 +36,11 @@ services:
       - backend
     networks:
       - firefly
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 networks:
   firefly: {}

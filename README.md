@@ -97,7 +97,33 @@ Security notes:
 - Only use this tool on networks you own or have explicit permission to test.
 - Backend applies SSRF safeguards for UPnP `LOCATION` fetches, configurable CORS, and strict input validation.
 - Prefer running in an isolated lab when experimenting with offensive techniques.
+ - Optional API key: set `API_KEY` to require header `X-API-Key` on `/api/discover`.
+ - Basic rate limit: 10 requests/min per client for `/api/discover`.
 
 Additional API parameters:
 - `upnp_st`, `upnp_mx`, `upnp_ttl`: UPnP tuning parameters
 - `interface_ip`: Optional local IP to bind discovery sockets (non-loopback)
+
+## Healthchecks
+- Liveness: `GET /api/healthz` → 200 when process is up
+- Readiness: `GET /api/readyz` → 200 when app is ready (503 during shutdown)
+- Dockerfile and Compose include healthchecks for backend and frontend containers.
+
+### Metrics (stub)
+- `GET /api/metrics/health` returns JSON counters for `healthz` and `readyz`.
+
+## API Docs
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- OpenAPI JSON: `http://localhost:8000/openapi.json`
+
+## Frontend (TypeScript + React Query)
+- The frontend is fully converted to TypeScript and uses React Query for discovery.
+- Key UX features:
+  - Determinate scan progress with cancel
+  - Protocol tabs with counts, search, and pagination
+  - Export JSON/CSV, API Docs button linking to Swagger UI
+- Running in Docker performs all installs inside the container; no host installs are required.
+
+## CRA Deprecation Notes
+- Create React App shows deprecation warnings. A follow-up migration path is documented in `docs/FRONTEND_MIGRATION.md` (e.g., migrate to Vite) but not required to run the app.

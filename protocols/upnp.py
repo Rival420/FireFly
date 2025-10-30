@@ -134,6 +134,9 @@ class UPnPDiscovery:
             host = parsed.hostname
             if not host:
                 return
+            # Deny obviously invalid ports
+            if parsed.port is not None and not (1 <= parsed.port <= 65535):
+                return
             try:
                 ip = ipaddress.ip_address(host)
             except ValueError:
@@ -149,9 +152,27 @@ class UPnPDiscovery:
 
             session = requests.Session()
             session.trust_env = False  # ignore proxies
-            response = session.get(location, timeout=3, allow_redirects=False)
+            headers = {"User-Agent": "FireFly/1.0 (+https://example.com/firefly)"}
+            response = session.get(location, timeout=3, allow_redirects=False, headers=headers, stream=True)
             if response.status_code == 200:
-                xml_content = response.text
+                # Content-Type must indicate XML
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                if not any(ct in content_type for ct in ["xml", "text/xml", "application/xml"]):
+                    return
+                # Enforce a max body size (1 MiB)
+                max_bytes = 1024 * 1024
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
+                    return
+                bytes_read = 0
+                chunks = []
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        bytes_read += len(chunk)
+                        if bytes_read > max_bytes:
+                            return
+                        chunks.append(chunk)
+                xml_content = b"".join(chunks).decode("utf-8", errors="replace")
                 root = ET.fromstring(xml_content)
                 # Look for the device node (assumes standard UPnP device description)
                 device_node = root.find('.//device')
