@@ -31,25 +31,9 @@ npm start
 
 ### Run with Docker Compose
 
-#### macOS / Windows (recommended)
-Multicast discovery requires access to the physical network interface. Docker Desktop
-runs containers inside a Linux VM, so `network_mode: host` **will not help** on
-macOS/Windows. Run the backend on your host and only the frontend in Docker:
-
+#### Default (full stack, bridge network)
 ```bash
-# 1. Backend on host (has real network access for multicast)
-pip install -r requirements.txt          # first time only
-uvicorn main:app --host 0.0.0.0 --port 8000
-
-# 2. Frontend in Docker
-docker compose up --build -d frontend
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
-```
-
-#### Linux — bridge network (basic)
-```bash
-docker compose --profile linux up --build -d
+docker compose up --build -d
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000
 ```
@@ -81,6 +65,21 @@ docker compose --profile hostnet up --build -d backend_hostnet frontend
 
 > **Tip:** Bookmark `http://<pi-ip>:3000` on any device on your network to scan
 > from your phone/laptop while the Pi does the actual multicast probing.
+
+#### macOS / Windows — backend on host
+Docker Desktop runs containers in a Linux VM, so multicast never reaches the physical
+LAN. Run the backend on your host and only the frontend in Docker:
+
+```bash
+# 1. Backend on host (real network access for multicast)
+pip install -r requirements.txt          # first time only
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 2. Frontend in Docker
+docker compose up --build -d frontend
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+```
 
 ### Run as Docker images (separate containers)
 Backend image:
