@@ -29,29 +29,58 @@ npm install
 npm start
 ```
 
-### Run with Docker Compose (full stack)
+### Run with Docker Compose
+
+#### macOS / Windows (recommended)
+Multicast discovery requires access to the physical network interface. Docker Desktop
+runs containers inside a Linux VM, so `network_mode: host` **will not help** on
+macOS/Windows. Run the backend on your host and only the frontend in Docker:
+
 ```bash
-docker compose up --build -d
+# 1. Backend on host (has real network access for multicast)
+pip install -r requirements.txt          # first time only
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 2. Frontend in Docker
+docker compose up --build -d frontend
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000
 ```
 
-#### Linux: Host networking profile (improves multicast reach)
-This uses a separate backend service that runs with `network_mode: host`.
+#### Linux — bridge network (basic)
+```bash
+docker compose --profile linux up --build -d
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+```
+
+#### Linux — host networking (best multicast reach)
+Uses `network_mode: host` so the backend can send/receive multicast directly on the LAN.
 
 ```bash
-# Start host-networked backend + normal frontend
 docker compose --profile hostnet up --build -d backend_hostnet frontend
 
 # Stop
 docker compose --profile hostnet down
 ```
 
-Note: `network_mode: host` is only supported on Linux. On macOS/Windows, run the backend on the host instead:
+#### Raspberry Pi
+A Pi on your LAN is the ideal setup for always-on IoT discovery. It runs Linux, so
+host networking works natively and the ARM images build out of the box (`python:3.11-slim`
+and `node:18-alpine` both support `arm64`/`armv7`).
+
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-docker compose up --build -d frontend
+# Clone and start with host networking (recommended for Pi)
+git clone https://github.com/Rival420/FireFly.git && cd FireFly
+docker compose --profile hostnet up --build -d backend_hostnet frontend
+
+# Frontend: http://<pi-ip>:3000
+# Backend:  http://<pi-ip>:8000
+# Swagger:  http://<pi-ip>:8000/docs
 ```
+
+> **Tip:** Bookmark `http://<pi-ip>:3000` on any device on your network to scan
+> from your phone/laptop while the Pi does the actual multicast probing.
 
 ### Run as Docker images (separate containers)
 Backend image:

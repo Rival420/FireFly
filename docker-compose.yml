@@ -1,5 +1,9 @@
 version: "3.9"
 services:
+  # ---------------------------------------------------------------------------
+  # Backend — containerized (bridge network)
+  # Good for Linux or when you don't need multicast discovery on the physical LAN.
+  # ---------------------------------------------------------------------------
   backend:
     build: .
     container_name: firefly-backend
@@ -22,8 +26,15 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    profiles: ["linux"]
 
-  # Optional Linux-only variant: backend with host networking for multicast
+  # ---------------------------------------------------------------------------
+  # Backend — Linux host networking (better multicast reach)
+  # Only works on Linux. `network_mode: host` on macOS Docker Desktop connects
+  # to the VM's network, NOT the Mac's physical interface.
+  # ---------------------------------------------------------------------------
   backend_hostnet:
     build: .
     container_name: firefly-backend-host
@@ -43,7 +54,15 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
     profiles: ["hostnet"]
+
+  # ---------------------------------------------------------------------------
+  # Frontend — always containerized
+  # REACT_APP_API_URL points the *browser* at localhost:8000, which works
+  # regardless of whether the backend is in Docker or running on the host.
+  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./firefly
@@ -54,8 +73,6 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8000
-    depends_on:
-      - backend
     networks:
       - firefly
     healthcheck:
@@ -64,5 +81,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+
 networks:
   firefly: {}

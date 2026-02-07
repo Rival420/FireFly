@@ -12,6 +12,13 @@ export interface DiscoverParams {
 }
 
 export async function discover(params: DiscoverParams, signal?: AbortSignal): Promise<DiscoverResponse> {
-  const { data } = await apiClient.get<DiscoverResponse>('/api/discover', { params, signal });
+  // Set Axios timeout to the discovery timeout + 15 s buffer so the request
+  // doesn't abort before the backend finishes scanning.
+  const requestTimeout = ((params.timeout || 5) + 15) * 1000;
+  const { data } = await apiClient.get<DiscoverResponse>('/api/discover', {
+    params,
+    signal,
+    timeout: requestTimeout,
+  });
   return data;
 }

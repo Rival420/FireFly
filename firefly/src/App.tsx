@@ -1,17 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Container,
-  Typography,
-  Card,
-  CardContent,
-  Grid,
-  Button,
   TextField,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
-  CircularProgress,
   Snackbar,
   Alert,
   Switch,
@@ -19,43 +12,106 @@ import {
   Tabs,
   Tab,
   Skeleton,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  LinearProgress,
   Pagination,
+  Button,
+  IconButton,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import StopIcon from '@mui/icons-material/Stop';
+import RouterIcon from '@mui/icons-material/Router';
+import DnsIcon from '@mui/icons-material/Dns';
+import VideocamIcon from '@mui/icons-material/Videocam';
+import SearchIcon from '@mui/icons-material/Search';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { discover } from './api/discover';
+import { apiClient } from './api/client';
 import type { DiscoverResponse, ProtocolKey } from './types';
 import { loadSettings, saveSettings } from './settings';
 import './App.css';
 
-const darkTheme = createTheme({
+/* ----------------------------------------------------------------
+   Theme
+   ---------------------------------------------------------------- */
+const cyberTheme = createTheme({
   palette: {
     mode: 'dark',
-    background: { default: '#121212', paper: '#1d1d1d' },
-    primary: { main: '#90caf9' },
-    text: { primary: '#ffffff' },
+    background: { default: '#050508', paper: '#0f1118' },
+    primary: { main: '#00d4ff' },
+    secondary: { main: '#ff0066' },
+    success: { main: '#00ff88' },
+    error: { main: '#ff0066' },
+    text: { primary: '#e4e8f1', secondary: '#8891a4' },
   },
+  typography: {
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  },
+  shape: { borderRadius: 10 },
 });
 
+/* ----------------------------------------------------------------
+   Protocol metadata (used for info cards)
+   ---------------------------------------------------------------- */
+const PROTOCOLS: {
+  key: ProtocolKey;
+  name: string;
+  port: string;
+  description: string;
+  discovers: string[];
+  Icon: React.ElementType;
+}[] = [
+  {
+    key: 'upnp',
+    name: 'UPnP / SSDP',
+    port: 'Multicast UDP 1900',
+    description:
+      'Universal Plug and Play uses SSDP multicast to locate smart TVs, media servers, routers, and IoT gateways. FireFly enriches results by fetching device description XML with SSRF-safe guardrails.',
+    discovers: ['Smart TVs', 'Media Servers', 'Routers', 'IoT Gateways'],
+    Icon: RouterIcon,
+  },
+  {
+    key: 'mdns',
+    name: 'mDNS / Zeroconf',
+    port: 'Multicast UDP 5353',
+    description:
+      'Multicast DNS enables zero-configuration discovery of local services -- printers, AirPlay speakers, Chromecast, and HTTP servers -- without requiring a central DNS server.',
+    discovers: ['Printers', 'AirPlay', 'Chromecast', 'Web Services'],
+    Icon: DnsIcon,
+  },
+  {
+    key: 'wsd',
+    name: 'WS-Discovery',
+    port: 'Multicast UDP 3702',
+    description:
+      'Web Services Discovery sends SOAP/XML probes to find IP cameras (ONVIF), network printers, and enterprise devices commonly found in surveillance and office environments.',
+    discovers: ['IP Cameras', 'ONVIF Devices', 'Network Printers'],
+    Icon: VideocamIcon,
+  },
+];
+
+/* ----------------------------------------------------------------
+   Constants & helpers
+   ---------------------------------------------------------------- */
 const API_URL =
   (process.env.REACT_APP_API_URL as string | undefined) ||
   `${window.location.protocol}//${window.location.hostname}:8000`;
 
 const emptyResults: DiscoverResponse = { upnp: [], mdns: [], wsd: [] };
-
 type PageSize = 12 | 24 | 48;
 
+function totalDevices(d: DiscoverResponse): number {
+  return d.upnp.length + d.mdns.length + d.wsd.length;
+}
+
+/* ================================================================
+   App
+   ================================================================ */
 export default function App(): JSX.Element {
   const queryClient = useQueryClient();
-
-  // Initialize from typed settings
   const initial = loadSettings();
 
+  /* ---- Scan parameters ---- */
   const [protocol, setProtocol] = useState<'all' | ProtocolKey>(initial.protocol);
   const [timeoutVal, setTimeoutVal] = useState<number>(initial.timeoutVal);
   const [mdnsService, setMdnsService] = useState<string>(initial.mdnsService);
@@ -64,18 +120,44 @@ export default function App(): JSX.Element {
   const [upnpMX, setUpnpMX] = useState<number>(initial.upnpMX);
   const [upnpTTL, setUpnpTTL] = useState<number>(initial.upnpTTL);
 
-  const [error, setError] = useState<string>('');
-  const [showRaw, setShowRaw] = useState<boolean>(initial.showRaw);
+  /* ---- UI state ---- */
+  const [toastMsg, setToastMsg] = useState('');
+  const [toastSeverity, setToastSeverity] = useState<'error' | 'success' | 'info'>('error');
+  const [showRaw, setShowRaw] = useState(initial.showRaw);
   const [activeTab, setActiveTab] = useState<'all' | ProtocolKey>(initial.activeTab);
-  const [search, setSearch] = useState<string>('');
-  const [page, setPage] = useState<number>(1);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(initial.pageSize as PageSize);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [hasScanned, setHasScanned] = useState(false);
 
-  // Progress state
-  const [progress, setProgress] = useState<number>(0);
-  const progressRef = useRef<{ timer: ReturnType<typeof setInterval> | null; start: number }>({ timer: null, start: 0 });
+  /* ---- Progress ---- */
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef<{ timer: ReturnType<typeof setInterval> | null; start: number }>({
+    timer: null,
+    start: 0,
+  });
 
-  // React Query for discovery (disabled by default; trigger via refetch)
+  /* ---- Backend health check (runs on mount + every 30 s) ---- */
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      try {
+        await apiClient.get('/api/healthz', { timeout: 5000 });
+        if (active) setBackendStatus('online');
+      } catch {
+        if (active) setBackendStatus('offline');
+      }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  /* ---- React Query — discovery ---- */
   const queryKey = [
     'discover',
     { protocol, timeoutVal, mdnsService, upnpST, upnpMX, upnpTTL, interfaceIp },
@@ -84,6 +166,8 @@ export default function App(): JSX.Element {
   const {
     data,
     isFetching,
+    isError,
+    error: queryError,
     refetch,
   } = useQuery<DiscoverResponse>({
     queryKey,
@@ -99,7 +183,7 @@ export default function App(): JSX.Element {
           upnp_ttl: upnpTTL,
           interface_ip: interfaceIp || undefined,
         },
-        signal as AbortSignal | undefined
+        signal as AbortSignal | undefined,
       ),
     staleTime: 30_000,
     gcTime: 5 * 60_000,
@@ -109,8 +193,20 @@ export default function App(): JSX.Element {
   });
 
   const devices: DiscoverResponse = data ?? emptyResults;
+  const deviceCount = totalDevices(devices);
 
-  // Start progress timer when fetching
+  /* ---- Surface query errors ---- */
+  useEffect(() => {
+    if (isError && queryError) {
+      const msg =
+        (queryError as any)?.response?.data?.detail || // eslint-disable-line @typescript-eslint/no-explicit-any
+        (queryError as any)?.message || // eslint-disable-line @typescript-eslint/no-explicit-any
+        'Discovery request failed';
+      showToast(msg, 'error');
+    }
+  }, [isError, queryError]);
+
+  /* ---- Determinate progress bar ---- */
   useEffect(() => {
     if (isFetching) {
       setProgress(0);
@@ -127,328 +223,514 @@ export default function App(): JSX.Element {
         progressRef.current.timer = null;
       }
       if (progress > 0 && progress < 100) setProgress(100);
-      setTimeout(() => setProgress(0), 400);
+      const t = setTimeout(() => setProgress(0), 400);
+      return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFetching]);
 
-  // Persist UI prefs on change (typed)
+  /* ---- Persist UI prefs ---- */
   useEffect(() => {
     saveSettings({ showRaw, activeTab, pageSize });
   }, [showRaw, activeTab, pageSize]);
 
-  const counts = {
-    upnp: devices.upnp.length,
-    mdns: devices.mdns.length,
-    wsd: devices.wsd.length,
-  };
+  /* ---- Derived data ---- */
+  const counts = { upnp: devices.upnp.length, mdns: devices.mdns.length, wsd: devices.wsd.length };
 
-  const protocolOrder: { key: 'all' | ProtocolKey; label: string }[] = [
-    { key: 'all', label: 'All' },
+  const protocolTabs: { key: 'all' | ProtocolKey; label: string }[] = [
+    { key: 'all', label: `All (${deviceCount})` },
     { key: 'upnp', label: `UPnP (${counts.upnp})` },
     { key: 'mdns', label: `mDNS (${counts.mdns})` },
-    { key: 'wsd', label: `WS-Discovery (${counts.wsd})` },
+    { key: 'wsd', label: `WSD (${counts.wsd})` },
   ];
-
-  const filterDevices = <T extends object>(list: T[]): T[] => {
-    const q = search.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((d) => JSON.stringify(d).toLowerCase().includes(q));
-  };
 
   const entriesAll =
     activeTab === 'all'
-      ? (Object.entries(devices) as [ProtocolKey, any[]][]) // eslint-disable-line @typescript-eslint/no-explicit-any
-          .flatMap(([proto, list]) => (list || []).map((d) => ({ proto, device: d })))
-      : (devices[activeTab] || []).map((d) => ({ proto: activeTab, device: d }));
+      ? (Object.entries(devices) as [ProtocolKey, any[]][]).flatMap( // eslint-disable-line @typescript-eslint/no-explicit-any
+          ([proto, list]) => (list || []).map((d: any) => ({ proto, device: d })), // eslint-disable-line @typescript-eslint/no-explicit-any
+        )
+      : (devices[activeTab] || []).map((d: any) => ({ proto: activeTab, device: d })); // eslint-disable-line @typescript-eslint/no-explicit-any
 
-  const filteredEntries = entriesAll.filter(({ device }) => filterDevices([device]).length);
+  const q = search.trim().toLowerCase();
+  const filteredEntries = q
+    ? entriesAll.filter(({ device }) => JSON.stringify(device).toLowerCase().includes(q))
+    : entriesAll;
+
   const pageCount = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
-  const pagedEntries = filteredEntries.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+  const pagedEntries = filteredEntries.slice((page - 1) * pageSize, page * pageSize);
+
+  /* ---- Actions ---- */
+  const startScan = () => {
+    setPage(1);
+    setHasScanned(true);
+    saveSettings({ protocol, timeoutVal, mdnsService, upnpST, upnpMX, upnpTTL, interfaceIp });
+    refetch();
+  };
 
   const cancelScan = async () => {
     try {
       await queryClient.cancelQueries({ queryKey });
-      setError('Scan cancelled');
-    } catch {}
+      showToast('Scan cancelled', 'info');
+    } catch {
+      /* noop */
+    }
   };
 
-  const download = (filename: string, text: string) => {
-    const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-    element.setAttribute('download', filename);
-    element.style.display = 'none';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  const showToast = (msg: string, severity: 'error' | 'success' | 'info' = 'error') => {
+    setToastMsg(msg);
+    setToastSeverity(severity);
   };
 
-  const exportJson = () => download('firefly_results.json', JSON.stringify(devices, null, 2));
+  const copyText = (text: string) => {
+    navigator.clipboard?.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+  };
+
+  /* ---- Export helpers ---- */
+  const downloadFile = (filename: string, content: string) => {
+    const el = document.createElement('a');
+    el.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
+    el.setAttribute('download', filename);
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    el.click();
+    document.body.removeChild(el);
+  };
+
+  const exportJson = () => downloadFile('firefly_results.json', JSON.stringify(devices, null, 2));
+
   const exportCsv = () => {
     try {
       const rows: Record<string, unknown>[] = [];
-      (Object.entries(devices) as [string, any[]][]) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .forEach(([proto, list]) => list.forEach((d) => rows.push({ proto, ...d })));
+      (Object.entries(devices) as [string, any[]][]).forEach(([proto, list]) => // eslint-disable-line @typescript-eslint/no-explicit-any
+        list.forEach((d: any) => rows.push({ protocol: proto, ...d })), // eslint-disable-line @typescript-eslint/no-explicit-any
+      );
       if (!rows.length) return;
       const headers = Array.from(
         rows.reduce((set, row) => {
           Object.keys(row).forEach((k) => set.add(k));
           return set;
-        }, new Set<string>())
+        }, new Set<string>()),
       );
       const csv = [headers.join(',')]
-        .concat(rows.map((r) => headers.map((h) => JSON.stringify((r as any)[h] ?? '')).join(',')))
+        .concat(rows.map((r: any) => headers.map((h) => JSON.stringify(r[h] ?? '')).join(','))) // eslint-disable-line @typescript-eslint/no-explicit-any
         .join('\n');
-      download('firefly_results.csv', csv);
+      downloadFile('firefly_results.csv', csv);
     } catch {
-      setError('Export failed');
+      showToast('Export failed');
     }
   };
 
-  return (
-    <ThemeProvider theme={darkTheme}>
-      <Container className="app-container">
-        <Typography variant="h3" align="center" gutterBottom>
-          Firefly - IoT Device Discovery
-        </Typography>
+  /* ---- Render a single device card ---- */
+  const renderDeviceCard = (proto: ProtocolKey, device: any, index: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const name = device.name || device.friendlyName || 'Unknown Device';
+    const type = device.type || device.ST || device.deviceType || '';
 
-        <Grid container spacing={2} justifyContent="center" alignItems="center">
-          <Grid item xs={12} sm={3}>
-            <FormControl fullWidth>
-              <InputLabel id="protocol-label">Protocol</InputLabel>
+    return (
+      <div className="result-card" key={`${proto}-${index}`} style={{ animationDelay: `${index * 40}ms` }}>
+        <div className={`result-card-accent ${proto}`} />
+        <div className="result-card-body">
+          {/* Header: name + badge */}
+          <div className="result-card-header">
+            <div>
+              <div className="result-device-name">{name}</div>
+              {type && <div className="result-device-type">{type}</div>}
+            </div>
+            <span className={`result-protocol-badge ${proto}`}>{proto}</span>
+          </div>
+
+          {/* Fields */}
+          <div className="result-fields">
+            {device.address && (
+              <div className="result-field">
+                <span className="result-field-label">Addr</span>
+                <span className="result-field-value">{device.address}</span>
+                <IconButton size="small" className="result-copy-btn" onClick={() => copyText(device.address)}>
+                  <ContentCopyIcon sx={{ fontSize: 13 }} />
+                </IconButton>
+              </div>
+            )}
+
+            {device.addresses && device.addresses.length > 0 && (
+              <div className="result-field">
+                <span className="result-field-label">IPs</span>
+                <span className="result-field-value">{device.addresses.join(', ')}</span>
+              </div>
+            )}
+
+            {device.port != null && (
+              <div className="result-field">
+                <span className="result-field-label">Port</span>
+                <span className="result-field-value">{device.port}</span>
+              </div>
+            )}
+
+            {device.LOCATION && (
+              <div className="result-field">
+                <span className="result-field-label">Loc</span>
+                <span className="result-field-value">{device.LOCATION}</span>
+                <IconButton size="small" className="result-copy-btn" onClick={() => copyText(device.LOCATION)}>
+                  <ContentCopyIcon sx={{ fontSize: 13 }} />
+                </IconButton>
+              </div>
+            )}
+
+            {device.USN && (
+              <div className="result-field">
+                <span className="result-field-label">USN</span>
+                <span className="result-field-value">{device.USN}</span>
+              </div>
+            )}
+
+            {device.SERVER && (
+              <div className="result-field">
+                <span className="result-field-label">Srv</span>
+                <span className="result-field-value">{device.SERVER}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Expandable: mDNS properties */}
+          {device.properties && Object.keys(device.properties).length > 0 && (
+            <details className="result-expandable">
+              <summary>Properties ({Object.keys(device.properties).length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                {Object.entries(device.properties).map(([k, v]) => (
+                  <div className="result-field" key={k}>
+                    <span className="result-field-label" style={{ minWidth: 'auto' }}>{k}</span>
+                    <span className="result-field-value">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Expandable: WSD raw response */}
+          {device.response && (
+            <details className="result-expandable">
+              <summary>Raw XML Response</summary>
+              <pre>{device.response}</pre>
+            </details>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /* ================================================================
+     RENDER
+     ================================================================ */
+  return (
+    <ThemeProvider theme={cyberTheme}>
+      <div className="cyber-app">
+        {/* ============================================================
+            HEADER
+            ============================================================ */}
+        <header className="cyber-header">
+          <h1 className="cyber-title">FIREFLY</h1>
+          <p className="cyber-subtitle">IoT Device Discovery Platform</p>
+          <p className="cyber-tagline">
+            Multi-protocol network scanner for discovering IoT devices using UPnP, mDNS,
+            and WS-Discovery with enterprise-grade SSRF protection, rate limiting,
+            and optional API key authentication.
+          </p>
+          <div
+            className={`status-badge ${backendStatus}`}
+            title={
+              backendStatus === 'online'
+                ? 'Backend API is reachable'
+                : backendStatus === 'offline'
+                  ? 'Cannot reach backend API'
+                  : 'Checking connectivity...'
+            }
+          >
+            <span className="status-dot" />
+            {backendStatus === 'online' && 'API Online'}
+            {backendStatus === 'offline' && 'API Offline'}
+            {backendStatus === 'checking' && 'Checking...'}
+          </div>
+        </header>
+
+        {/* ============================================================
+            PROTOCOL INFO
+            ============================================================ */}
+        <section className="protocol-section">
+          <div className="section-label">Discovery Protocols</div>
+          <div className="protocol-grid">
+            {PROTOCOLS.map((p) => (
+              <div className={`protocol-card ${p.key}`} key={p.key}>
+                <div className="protocol-card-header">
+                  <div className="protocol-icon">
+                    <p.Icon />
+                  </div>
+                  <div>
+                    <div className="protocol-name">{p.name}</div>
+                    <div className="protocol-port">{p.port}</div>
+                  </div>
+                </div>
+                <p className="protocol-desc">{p.description}</p>
+                <div className="protocol-tags">
+                  {p.discovers.map((tag) => (
+                    <span className="protocol-tag" key={tag}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ============================================================
+            SCAN PANEL
+            ============================================================ */}
+        <section className="scan-panel">
+          <div className="section-label">Scan Configuration</div>
+
+          <div className="scan-controls">
+            <FormControl fullWidth size="small">
+              <InputLabel>Protocol</InputLabel>
               <Select
-                labelId="protocol-label"
                 value={protocol}
                 label="Protocol"
-                onChange={(e) => setProtocol(e.target.value as any)}
+                onChange={(e) => setProtocol(e.target.value as 'all' | ProtocolKey)}
               >
-                <MenuItem value="all">All</MenuItem>
-                <MenuItem value="upnp">UPnP</MenuItem>
-                <MenuItem value="mdns">mDNS</MenuItem>
+                <MenuItem value="all">All Protocols</MenuItem>
+                <MenuItem value="upnp">UPnP / SSDP</MenuItem>
+                <MenuItem value="mdns">mDNS / Zeroconf</MenuItem>
                 <MenuItem value="wsd">WS-Discovery</MenuItem>
               </Select>
             </FormControl>
-          </Grid>
 
-          {(protocol === 'all' || protocol === 'mdns') && (
-            <Grid item xs={12} sm={3}>
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Timeout (seconds)"
+              value={timeoutVal}
+              onChange={(e) => setTimeoutVal(Math.max(1, Math.min(300, Number(e.target.value) || 1)))}
+              helperText="1 - 300s"
+            />
+
+            {(protocol === 'all' || protocol === 'mdns') && (
               <TextField
                 fullWidth
-                label="mDNS Service"
+                size="small"
+                label="mDNS Service Type"
                 value={mdnsService}
                 onChange={(e) => setMdnsService(e.target.value)}
-                helperText='e.g. "_services._dns-sd._udp.local." or "All"'
+                helperText='"all" or e.g. _http._tcp.local.'
               />
-            </Grid>
-          )}
+            )}
 
-          {(protocol === 'all' || protocol === 'upnp') && (
-            <>
-              <Grid item xs={12} sm={3}>
+            {(protocol === 'all' || protocol === 'upnp') && (
+              <>
                 <TextField
                   fullWidth
-                  label="UPnP ST"
+                  size="small"
+                  label="UPnP Search Target"
                   value={upnpST}
                   onChange={(e) => setUpnpST(e.target.value)}
-                  helperText='Search Target (e.g., "ssdp:all" or "upnp:rootdevice")'
+                  helperText="e.g. ssdp:all"
                 />
-              </Grid>
-              <Grid item xs={12} sm={2}>
                 <TextField
                   fullWidth
+                  size="small"
                   type="number"
                   label="UPnP MX"
                   value={upnpMX}
                   onChange={(e) => setUpnpMX(Number(e.target.value))}
-                  helperText="MX (max wait time)"
+                  helperText="Max wait 1-5"
                 />
-              </Grid>
-              <Grid item xs={12} sm={2}>
                 <TextField
                   fullWidth
+                  size="small"
                   type="number"
-                  label="UPnP TTL"
+                  label="Multicast TTL"
                   value={upnpTTL}
                   onChange={(e) => setUpnpTTL(Number(e.target.value))}
-                  helperText="Multicast TTL"
+                  helperText="Hop limit 1-16"
                 />
-              </Grid>
-            </>
-          )}
+              </>
+            )}
 
-          <Grid item xs={12} sm={2}>
             <TextField
               fullWidth
-              type="number"
-              label="Timeout (s)"
-              value={timeoutVal}
-              onChange={(e) => setTimeoutVal(Number(e.target.value))}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
+              size="small"
               label="Interface IP"
               value={interfaceIp}
               onChange={(e) => setInterfaceIp(e.target.value)}
-              helperText="Optional local IP to bind"
+              helperText="Optional bind address"
             />
-          </Grid>
-
-          <Grid item xs={12} sm={2}>
-            <Button
-              variant="contained"
-              color="primary"
-              fullWidth
-              onClick={() => { setPage(1); saveSettings({ protocol, timeoutVal, mdnsService, upnpST, upnpMX, upnpTTL, interfaceIp }); refetch(); }}
-              disabled={isFetching}
-            >
-              {isFetching ? <CircularProgress size={24} color="inherit" /> : 'Scan'}
-            </Button>
-          </Grid>
-        </Grid>
-
-        <Grid container spacing={2} style={{ marginTop: '20px' }}>
-          <Grid item xs={12} sm={3}>
-            <FormControlLabel
-              control={<Switch checked={showRaw} onChange={(e) => setShowRaw(e.target.checked)} />}
-              label="Show Raw JSON"
-            />
-          </Grid>
-          <Grid item xs={12} sm={3}>
-            <Button variant="outlined" fullWidth onClick={exportJson} disabled={!Object.keys(devices).length}>
-              Export JSON
-            </Button>
-          </Grid>
-          <Grid item xs={12} sm={3}>
-            <Button variant="outlined" fullWidth onClick={exportCsv} disabled={!Object.keys(devices).length}>
-              Export CSV
-            </Button>
-          </Grid>
-          <Grid item xs={12} sm={3}>
-            <Button
-              variant="outlined"
-              fullWidth
-              component="a"
-              href={`${API_URL}/docs`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open API documentation (Swagger)"
-            >
-              API Docs (Swagger)
-            </Button>
-          </Grid>
-        </Grid>
-
-        {isFetching && (
-          <div style={{ marginTop: 16 }} aria-live="polite">
-            <Typography variant="body2" gutterBottom>
-              Scanning {protocol.toUpperCase()}… ~{Math.max(0, Math.ceil(timeoutVal * (100 - progress) / 100))}s left
-            </Typography>
-            <LinearProgress variant="determinate" value={progress} />
-            <div className="device-actions">
-              <Button size="small" onClick={async () => { await cancelScan(); }} aria-label="Cancel scan">Cancel</Button>
-            </div>
           </div>
-        )}
 
-        <div style={{ marginTop: '40px' }}>
+          <div className="scan-actions">
+            {!isFetching ? (
+              <button
+                className="scan-btn"
+                onClick={startScan}
+                disabled={backendStatus === 'offline'}
+              >
+                Initiate Scan
+              </button>
+            ) : (
+              <button className="scan-btn scan-btn--cancel" onClick={cancelScan}>
+                <StopIcon sx={{ fontSize: 18 }} />
+                Cancel Scan
+              </button>
+            )}
+          </div>
+
+          {isFetching && (
+            <div className="scan-progress">
+              <div className="scan-progress-text scanning-text">
+                Scanning {protocol === 'all' ? 'all protocols' : protocol.toUpperCase()}
+                {' \u2014 '}
+                ~{Math.max(0, Math.ceil(timeoutVal * (100 - progress) / 100))}s remaining
+              </div>
+              <div className="scan-progress-bar">
+                <div className="scan-progress-fill" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ============================================================
+            RESULTS
+            ============================================================ */}
+        <section className="results-section">
+          <div className="section-label">Discovery Results</div>
+
           <Tabs
             value={activeTab}
-            onChange={(_, v) => { setActiveTab(v); setPage(1); saveSettings({ activeTab: v }); }}
-            aria-label="Protocol tabs"
+            onChange={(_, v) => {
+              setActiveTab(v);
+              setPage(1);
+              saveSettings({ activeTab: v });
+            }}
+            aria-label="Protocol result tabs"
+            variant="scrollable"
+            scrollButtons="auto"
           >
-            {protocolOrder.map((t) => (
+            {protocolTabs.map((t) => (
               <Tab key={t.key} value={t.key} label={t.label} />
             ))}
           </Tabs>
 
-          <div className="toolbar-row" role="region" aria-label="Results toolbar">
+          <div className="results-toolbar">
             <TextField
+              className="search-field"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               label="Search results"
-              inputProps={{ 'aria-label': 'Search results' }}
-              placeholder="Search name, type, address, etc."
-              fullWidth
+              placeholder="Filter by name, address, type..."
+              size="small"
+              InputProps={{
+                startAdornment: (
+                  <SearchIcon sx={{ mr: 1, color: 'var(--text-muted)', fontSize: 18 }} />
+                ),
+              }}
             />
-            <FormControl size="small" style={{ width: 140 }}>
-              <InputLabel id="page-size-label">Page size</InputLabel>
+            <FormControl size="small" sx={{ minWidth: 110 }}>
+              <InputLabel>Per page</InputLabel>
               <Select
-                labelId="page-size-label"
-                label="Page size"
+                label="Per page"
                 value={pageSize}
-                onChange={(e) => { const v = Number(e.target.value) as PageSize; setPageSize(v); setPage(1); saveSettings({ pageSize: v }); }}
+                onChange={(e) => {
+                  const v = Number(e.target.value) as PageSize;
+                  setPageSize(v);
+                  setPage(1);
+                }}
               >
                 {[12, 24, 48].map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                  <MenuItem key={s} value={s}>
+                    {s}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
           </div>
 
+          {/* Error state */}
+          {isError && !isFetching && (
+            <div className="error-state">
+              <div className="error-state-title">Discovery Failed</div>
+              <div className="error-state-desc">
+                {(queryError as any)?.response?.data?.detail || /* eslint-disable-line @typescript-eslint/no-explicit-any */
+                  (queryError as any)?.message || /* eslint-disable-line @typescript-eslint/no-explicit-any */
+                  'Could not reach the backend API. Ensure the backend is running and accessible.'}
+              </div>
+            </div>
+          )}
+
+          {/* Loading skeletons */}
           {isFetching && (
-            <Grid container spacing={2} style={{ marginTop: 16 }}>
+            <div className="skeleton-grid">
               {Array.from({ length: 6 }).map((_, i) => (
-                <Grid item xs={12} sm={6} md={4} key={i}>
-                  <Card variant="outlined" className="device-card">
-                    <CardContent>
-                      <Skeleton variant="text" width="60%" />
-                      <Skeleton variant="text" width="40%" />
-                      <Skeleton variant="rectangular" height={80} />
-                    </CardContent>
-                  </Card>
-                </Grid>
+                <div className="skeleton-card" key={i}>
+                  <Skeleton variant="text" width="60%" />
+                  <Skeleton variant="text" width="40%" />
+                  <Skeleton variant="rectangular" height={60} sx={{ borderRadius: 1, mt: 1 }} />
+                </div>
               ))}
-            </Grid>
+            </div>
           )}
 
-          {!isFetching && Object.keys(devices).length === 0 && (
-            <Typography variant="h6" align="center">
-              No devices found. Click "Scan" to start discovery.
-            </Typography>
+          {/* Empty: no scan yet */}
+          {!isFetching && !hasScanned && !isError && (
+            <div className="empty-state">
+              <div className="empty-state-icon">
+                <SearchIcon sx={{ fontSize: 'inherit' }} />
+              </div>
+              <div className="empty-state-title">Ready to Discover</div>
+              <div className="empty-state-desc">
+                Configure your scan parameters above and click &ldquo;Initiate Scan&rdquo; to probe
+                your local network for IoT devices across all supported protocols.
+              </div>
+            </div>
           )}
 
-          {!isFetching && Object.keys(devices).length > 0 && (
-            <Grid container spacing={2}>
-              {pagedEntries.map(({ proto, device }, index) => (
-                <Grid item xs={12} sm={6} md={4} key={index}>
-                  <Accordion>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography variant="subtitle1" style={{ width: '100%' }}>
-                        <strong>{device.name || 'Unnamed'}</strong> — {device.type || (device as any).ST || 'Unknown'}
-                      </Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Typography variant="body2"><strong>Protocol:</strong> {proto.toUpperCase()}</Typography>
-                      {(device as any).address && (
-                        <div className="device-actions">
-                          <Typography variant="body2"><strong>Address:</strong> {(device as any).address}</Typography>
-                          <Button size="small" aria-label={`Copy address ${(device as any).address}`} onClick={() => navigator.clipboard?.writeText((device as any).address)}>Copy</Button>
-                        </div>
-                      )}
-                      {(device as any).LOCATION && (
-                        <div className="device-actions">
-                          <Typography variant="body2"><strong>Location:</strong> {(device as any).LOCATION}</Typography>
-                          <Button size="small" aria-label="Copy LOCATION" onClick={() => navigator.clipboard?.writeText((device as any).LOCATION)}>Copy</Button>
-                        </div>
-                      )}
-                      {(device as any).USN && (
-                        <Typography variant="body2"><strong>USN:</strong> {(device as any).USN}</Typography>
-                      )}
-                      {(device as any).SERVER && (
-                        <Typography variant="body2"><strong>Server:</strong> {(device as any).SERVER}</Typography>
-                      )}
-                      {(device as any).response && (
-                        <Typography variant="body2" className="long-text"><strong>Response:</strong> {(device as any).response}</Typography>
-                      )}
-                    </AccordionDetails>
-                  </Accordion>
-                </Grid>
-              ))}
-              <Grid item xs={12}>
-                <div className="device-actions" style={{ justifyContent: 'center' }}>
+          {/* Empty: scanned but 0 devices */}
+          {!isFetching && hasScanned && deviceCount === 0 && !isError && (
+            <div className="empty-state">
+              <div className="empty-state-icon">
+                <SearchIcon sx={{ fontSize: 'inherit' }} />
+              </div>
+              <div className="empty-state-title">No Devices Found</div>
+              <div className="empty-state-desc">
+                The scan completed but no devices were discovered. This can happen in certain
+                network configurations, especially in containerized environments.
+              </div>
+              <div className="empty-state-hint">
+                Troubleshooting tips:
+                <br />
+                - Increase the timeout for slower networks
+                <br />
+                - Try scanning individual protocols
+                <br />
+                - If running in Docker, multicast is limited &mdash;
+                use <code>--network host</code> (Linux) or run backend on the host
+                <br />
+                - Ensure your firewall allows UDP multicast traffic
+                <br />
+                - Try specifying your network interface IP
+              </div>
+            </div>
+          )}
+
+          {/* Results grid */}
+          {!isFetching && deviceCount > 0 && (
+            <>
+              <div className="results-count">
+                Showing {pagedEntries.length} of {filteredEntries.length} device
+                {filteredEntries.length !== 1 ? 's' : ''}
+                {search && ` matching "${search}"`}
+              </div>
+              <div className="results-grid">
+                {pagedEntries.map(({ proto, device }, i) => renderDeviceCard(proto, device, i))}
+              </div>
+              {pageCount > 1 && (
+                <div className="pagination-wrap">
                   <Pagination
                     count={pageCount}
                     page={page}
@@ -456,26 +738,94 @@ export default function App(): JSX.Element {
                     color="primary"
                     showFirstButton
                     showLastButton
-                    aria-label="Results pagination"
                   />
                 </div>
-              </Grid>
-            </Grid>
+              )}
+            </>
           )}
+        </section>
+
+        {/* ============================================================
+            FOOTER TOOLBAR
+            ============================================================ */}
+        <div className="footer-bar">
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showRaw}
+                onChange={(e) => setShowRaw(e.target.checked)}
+              />
+            }
+            label={
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-secondary)',
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Raw JSON
+              </span>
+            }
+          />
+          <Button
+            className="footer-btn"
+            variant="outlined"
+            size="small"
+            onClick={exportJson}
+            disabled={deviceCount === 0}
+          >
+            Export JSON
+          </Button>
+          <Button
+            className="footer-btn"
+            variant="outlined"
+            size="small"
+            onClick={exportCsv}
+            disabled={deviceCount === 0}
+          >
+            Export CSV
+          </Button>
+          <Button
+            className="footer-btn"
+            variant="outlined"
+            size="small"
+            component="a"
+            href={`${API_URL}/docs`}
+            target="_blank"
+            rel="noopener noreferrer"
+            endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+          >
+            API Docs
+          </Button>
         </div>
 
-        {showRaw && (
-          <pre style={{ marginTop: 20, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {JSON.stringify(devices, null, 2)}
-          </pre>
+        {showRaw && deviceCount > 0 && (
+          <div className="raw-json">{JSON.stringify(devices, null, 2)}</div>
         )}
 
-        <Snackbar open={!!error} autoHideDuration={6000} onClose={() => setError('')}>
-          <Alert onClose={() => setError('')} severity="error" sx={{ width: '100%' }}>
-            {error}
+        {/* ============================================================
+            TOAST
+            ============================================================ */}
+        <Snackbar
+          open={!!toastMsg}
+          autoHideDuration={4000}
+          onClose={() => setToastMsg('')}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setToastMsg('')}
+            severity={toastSeverity}
+            variant="filled"
+            sx={{ width: '100%' }}
+          >
+            {toastMsg}
           </Alert>
         </Snackbar>
-      </Container>
+      </div>
     </ThemeProvider>
   );
 }
