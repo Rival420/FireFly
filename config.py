@@ -25,6 +25,12 @@ class AppSettings(BaseModel):
     upnp_default_mx: int = Field(default=int(os.getenv("UPNP_DEFAULT_MX", "3")))
     upnp_default_ttl: int = Field(default=int(os.getenv("UPNP_DEFAULT_TTL", "2")))
     api_key: str | None = Field(default=os.getenv("API_KEY"))
+    mqtt_default_ports: str = Field(default=os.getenv("MQTT_DEFAULT_PORTS", "1883,8883"))
+    mqtt_probe_delay_ms: int = Field(default=int(os.getenv("MQTT_PROBE_DELAY_MS", "100")))
+    coap_multicast_enabled: bool = Field(
+        default=os.getenv("COAP_MULTICAST_ENABLED", "true").lower() == "true"
+    )
+    coap_probe_delay_ms: int = Field(default=int(os.getenv("COAP_PROBE_DELAY_MS", "100")))
 
 
 def get_settings() -> AppSettings:

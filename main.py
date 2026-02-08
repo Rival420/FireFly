@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from protocols import upnp, mdns, ws_discovery
+from protocols import upnp, mdns, ws_discovery, mqtt, coap
 from schemas import DiscoverQuery, DiscoverResponse, ErrorResponse
 from config import get_settings
 import logging
@@ -11,11 +11,12 @@ from fastapi.openapi.utils import get_openapi
 app = FastAPI(
     title="FireFly IoT Discovery API",
     version="1.0",
-    summary="Modular multi-protocol IoT discovery (UPnP, mDNS, WS-Discovery)",
+    summary="Modular multi-protocol IoT discovery (UPnP, mDNS, WS-Discovery, MQTT, CoAP)",
     description=(
         "FireFly exposes a safe, modular API to discover devices on local networks "
-        "using UPnP/SSDP, mDNS/Zeroconf, and WS-Discovery with strong input validation "
-        "and SSRF guardrails for enrichment."
+        "using UPnP/SSDP, mDNS/Zeroconf, WS-Discovery, MQTT broker scanning, and "
+        "CoAP resource discovery with strong input validation and SSRF guardrails "
+        "for enrichment."
     ),
     terms_of_service="https://example.com/terms",
     contact={
@@ -255,7 +256,7 @@ def rate_limit(request: Request) -> None:
     },
 )
 def discover(
-    protocol: str = Query("all", description="upnp|mdns|wsd|all"),
+    protocol: str = Query("all", description="upnp|mdns|wsd|mqtt|coap|all"),
     timeout: int = Query(None, description="Timeout seconds (1-300)"),
     mdns_service: str = Query("_services._dns-sd._udp.local.", description="mDNS service or 'all'"),
     upnp_st: str = Query("ssdp:all", description="UPnP search target"),
@@ -291,7 +292,7 @@ def discover(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid interface_ip")
 
-    results: dict = {"upnp": [], "mdns": [], "wsd": []}
+    results: dict = {"upnp": [], "mdns": [], "wsd": [], "mqtt": [], "coap": []}
 
     # UPnP Discovery
     if query.protocol in ("all", "upnp"):
@@ -334,6 +335,62 @@ def discover(
     if query.protocol in ("all", "wsd"):
         wsd_results = ws_discovery.WSDiscovery(timeout=query.timeout, multicast_ttl=query.upnp_ttl, interface_ip=query.interface_ip).discover()
         results["wsd"] = wsd_results
+
+    # MQTT Broker Discovery
+    if query.protocol in ("all", "mqtt"):
+        # Collect IPs already discovered by other protocols for targeted probing
+        known_ips: set[str] = set()
+        for dev in results.get("upnp", []):
+            if dev.get("address"):
+                known_ips.add(dev["address"])
+        for dev in results.get("mdns", []):
+            for addr in (dev.get("addresses") or []):
+                known_ips.add(addr)
+        for dev in results.get("wsd", []):
+            if dev.get("address"):
+                known_ips.add(dev["address"])
+
+        mqtt_port_strs = settings.mqtt_default_ports.split(",")
+        mqtt_ports = []
+        for ps in mqtt_port_strs:
+            ps = ps.strip()
+            if ps.isdigit():
+                p = int(ps)
+                mqtt_ports.append({
+                    "port": p,
+                    "name": "MQTT-TLS" if p == 8883 else "MQTT",
+                    "tls": p == 8883,
+                })
+
+        mqtt_results = mqtt.MQTTDiscovery(
+            timeout=query.timeout,
+            target_ips=sorted(known_ips) if known_ips else [],
+            ports=mqtt_ports or None,
+            interface_ip=query.interface_ip,
+            probe_delay_ms=settings.mqtt_probe_delay_ms,
+        ).discover()
+        results["mqtt"] = mqtt_results
+
+    # CoAP Discovery
+    if query.protocol in ("all", "coap"):
+        known_ips_coap: set[str] = set()
+        for dev in results.get("upnp", []):
+            if dev.get("address"):
+                known_ips_coap.add(dev["address"])
+        for dev in results.get("mdns", []):
+            for addr in (dev.get("addresses") or []):
+                known_ips_coap.add(addr)
+        for dev in results.get("wsd", []):
+            if dev.get("address"):
+                known_ips_coap.add(dev["address"])
+
+        coap_results = coap.CoAPDiscovery(
+            timeout=query.timeout,
+            target_ips=sorted(known_ips_coap) if known_ips_coap else [],
+            interface_ip=query.interface_ip,
+            probe_delay_ms=settings.coap_probe_delay_ms,
+        ).discover()
+        results["coap"] = coap_results
 
     # Deep enumeration & fingerprinting (when requested)
     if query.enrich:

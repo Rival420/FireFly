@@ -91,6 +91,29 @@ TAXONOMY_RULES: list[TaxonomyRule] = [
         ],
         priority=7,
     ),
+    # --- MQTT Brokers ---
+    TaxonomyRule(
+        category="mqtt-broker",
+        tags=["iot", "messaging", "mqtt"],
+        patterns=[
+            re.compile(
+                r"mosquitto|emqx|hivemq|vernemq|rabbitmq.*mqtt|activemq",
+                re.I,
+            ),
+            re.compile(r"mqtt.*broker|broker.*1883", re.I),
+        ],
+        priority=7,
+    ),
+    # --- CoAP Devices ---
+    TaxonomyRule(
+        category="coap-device",
+        tags=["iot", "constrained", "coap"],
+        patterns=[
+            re.compile(r"coap|oic\.|ocf\.|lwm2m|ipso", re.I),
+            re.compile(r"contiki|riot-os|zephyr|mbed", re.I),
+        ],
+        priority=6,
+    ),
     # --- Media / Streaming ---
     TaxonomyRule(
         category="media",
@@ -103,7 +126,7 @@ TAXONOMY_RULES: list[TaxonomyRule] = [
             ),
             re.compile(r"MediaRenderer|MediaServer|_raop\._tcp", re.I),
         ],
-        priority=6,
+        priority=5,
     ),
     # --- Routers / Network Equipment ---
     TaxonomyRule(

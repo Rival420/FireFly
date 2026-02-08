@@ -27,6 +27,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_RAW              # needed for CoAP multicast group joins
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m

@@ -323,6 +323,82 @@ def _parse_wsd_scopes(device: DeviceInfo, scopes: str) -> None:
                 device.device_tags.append(tag)
 
 
+class MQTTBrokerEnricher:
+    """Extract device metadata from MQTT $SYS data and broker identification."""
+
+    name = "mqtt_broker"
+
+    def can_enrich(self, device: DeviceInfo) -> bool:
+        return device.protocol == "mqtt"
+
+    def enrich(self, device: DeviceInfo, timeout: float) -> DeviceInfo:
+        metadata = device.raw_data.get("metadata", {})
+
+        # Extract broker name/version from $SYS/broker/version
+        version_str = metadata.get("$SYS/broker/version", "")
+        if version_str:
+            lower = version_str.lower()
+            if "mosquitto" in lower:
+                device.manufacturer = "Eclipse Foundation"
+                device.model = "Mosquitto"
+            elif "emqx" in lower:
+                device.manufacturer = "EMQ Technologies"
+                device.model = "EMQX"
+            elif "hivemq" in lower:
+                device.manufacturer = "HiveMQ GmbH"
+                device.model = "HiveMQ"
+            elif "vernemq" in lower:
+                device.manufacturer = "Erlio GmbH"
+                device.model = "VerneMQ"
+            elif "rabbitmq" in lower:
+                device.manufacturer = "Broadcom"
+                device.model = "RabbitMQ"
+            device.firmware_version = version_str
+
+        device.friendly_name = device.raw_data.get("broker_name") or device.friendly_name
+
+        # Record the MQTT port as a service
+        port = device.port or 1883
+        device.services.append({
+            "port": port,
+            "name": "MQTT",
+            "banner": version_str or "",
+            "tls": device.raw_data.get("tls_supported", False),
+        })
+
+        return device
+
+
+class CoAPResourceEnricher:
+    """Extract device metadata from CoAP resource descriptions."""
+
+    name = "coap_resource"
+
+    def can_enrich(self, device: DeviceInfo) -> bool:
+        return device.protocol == "coap"
+
+    def enrich(self, device: DeviceInfo, timeout: float) -> DeviceInfo:
+        resources = device.raw_data.get("resources", [])
+        for res in resources:
+            rt = res.get("rt", "") or ""
+            # Map OIC/OCF resource types to device metadata
+            if "oic.d." in rt:
+                device.device_category = rt.split("oic.d.")[-1]
+            elif "oic.wk.d" in rt:
+                device.device_category = "ocf-device"
+
+            if res.get("uri") and res.get("observable"):
+                device.services.append({
+                    "port": device.port or 5683,
+                    "name": f"CoAP:{res['uri']}",
+                    "banner": f"rt={rt}" if rt else "",
+                    "tls": False,
+                })
+
+        device.friendly_name = device.raw_data.get("device_type") or device.friendly_name
+        return device
+
+
 # ===================================================================
 # Conversion helpers (discovery dicts  ↔  DeviceInfo)
 # ===================================================================
@@ -356,6 +432,24 @@ def devices_from_results(results: dict[str, list]) -> list[DeviceInfo]:
             raw_data=dict(raw),
         ))
 
+    for raw in results.get("mqtt", []):
+        devices.append(DeviceInfo(
+            protocol="mqtt",
+            address=raw.get("address", ""),
+            port=raw.get("port", 1883),
+            raw_data=dict(raw),
+            friendly_name=raw.get("broker_name"),
+        ))
+
+    for raw in results.get("coap", []):
+        devices.append(DeviceInfo(
+            protocol="coap",
+            address=raw.get("address", ""),
+            port=raw.get("port", 5683),
+            raw_data=dict(raw),
+            friendly_name=raw.get("device_type"),
+        ))
+
     return devices
 
 
@@ -377,7 +471,7 @@ def fingerprint_dict(dev: DeviceInfo) -> dict[str, Any]:
 
 def apply_enrichment(results: dict[str, list], enriched: list[DeviceInfo]) -> dict[str, list]:
     """Merge fingerprint data back into the original results dict."""
-    counters: dict[str, int] = {"upnp": 0, "mdns": 0, "wsd": 0}
+    counters: dict[str, int] = {"upnp": 0, "mdns": 0, "wsd": 0, "mqtt": 0, "coap": 0}
     for dev in enriched:
         proto = dev.protocol
         idx = counters.get(proto, 0)
@@ -402,6 +496,8 @@ def build_default_pipeline() -> EnrichmentPipeline:
     pipeline.register(UPnPDeepEnricher())
     pipeline.register(MDNSTxtEnricher())
     pipeline.register(WSDMetadataEnricher())
+    pipeline.register(MQTTBrokerEnricher())
+    pipeline.register(CoAPResourceEnricher())
     pipeline.register(ServerHeaderFingerprinter())
     pipeline.register(BannerGrabber())
     pipeline.register(DeviceClassifier())      # must run last

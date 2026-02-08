@@ -17,3 +17,4 @@ typing_extensions==4.12.2
 urllib3==2.3.0
 uvicorn==0.34.0
 zeroconf==0.143.0
+paho-mqtt==2.1.0

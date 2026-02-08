@@ -11,7 +11,7 @@ class ErrorResponse(BaseModel):
 class DiscoverQuery(BaseModel):
     protocol: constr(strip_whitespace=True, to_lower=True) = Field(
         default="all",
-        pattern="^(all|upnp|mdns|wsd)$",
+        pattern="^(all|upnp|mdns|wsd|mqtt|coap)$",
         description="Discovery protocol to use",
     )
     timeout: conint(ge=1, le=300) = Field(default=5, description="Timeout in seconds")
@@ -82,6 +82,48 @@ class WSDDevice(BaseModel):
     fingerprint: Optional[DeviceFingerprint] = None
 
 
+class MQTTBroker(BaseModel):
+    address: str
+    port: int = 1883
+    broker_name: Optional[str] = None
+    broker_version: Optional[str] = None
+    anonymous_access: bool = False
+    tls_supported: bool = False
+    anonymous_publish: bool = False
+    connected_clients: Optional[int] = None
+    uptime_seconds: Optional[int] = None
+    messages_received: Optional[int] = None
+    messages_sent: Optional[int] = None
+    sampled_topics: List[str] = Field(default_factory=list)
+    topic_count: int = 0
+    risk_flags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    fingerprint: Optional[DeviceFingerprint] = None
+
+
+class CoAPResource(BaseModel):
+    uri: str
+    rt: Optional[str] = None
+    if_desc: Optional[str] = None
+    ct: Optional[str] = None
+    observable: bool = False
+    title: Optional[str] = None
+
+
+class CoAPDevice(BaseModel):
+    address: str
+    port: int = 5683
+    resources: List[CoAPResource] = Field(default_factory=list)
+    device_type: Optional[str] = None
+    firmware: Optional[str] = None
+    dtls_supported: bool = False
+    unauthenticated_access: bool = False
+    observable_resources: List[str] = Field(default_factory=list)
+    risk_flags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    fingerprint: Optional[DeviceFingerprint] = None
+
+
 # ---------------------------------------------------------------------------
 # Aggregate response
 # ---------------------------------------------------------------------------
@@ -90,3 +132,5 @@ class DiscoverResponse(BaseModel):
     upnp: List[UPnPDevice] = Field(default_factory=list)
     mdns: List[MDNSService] = Field(default_factory=list)
     wsd: List[WSDDevice] = Field(default_factory=list)
+    mqtt: List[MQTTBroker] = Field(default_factory=list)
+    coap: List[CoAPDevice] = Field(default_factory=list)
