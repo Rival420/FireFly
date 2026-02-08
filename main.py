@@ -140,6 +140,87 @@ def health_metrics() -> dict:
     return app.state.health_metrics
 
 
+@app.get("/api/diagnostics", tags=["health"], summary="Network diagnostics for multicast discovery")
+def diagnostics() -> dict:
+    """Check network interfaces, multicast capability, and run a quick SSDP probe."""
+    import socket
+    import struct
+    import platform
+    import time
+    import netifaces  # noqa: might not be installed — handled below
+
+    result: dict = {
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "hostname": socket.gethostname(),
+        "interfaces": {},
+        "multicast_socket": {"ok": False, "error": None},
+        "ssdp_probe": {"sent": False, "responses": 0, "devices": [], "error": None},
+        "mdns_socket": {"ok": False, "error": None},
+    }
+
+    # ---- 1. Network interfaces ----
+    try:
+        import ifaddr
+        for adapter in ifaddr.get_adapters():
+            ips = [ip.ip for ip in adapter.ips if isinstance(ip.ip, str) and not ip.ip.startswith("127.")]
+            if ips:
+                result["interfaces"][adapter.nice_name] = ips
+    except Exception as exc:
+        result["interfaces"]["error"] = str(exc)
+
+    # ---- 2. Can we create a multicast UDP socket? ----
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.close()
+        result["multicast_socket"] = {"ok": True, "error": None}
+    except Exception as exc:
+        result["multicast_socket"] = {"ok": False, "error": str(exc)}
+
+    # ---- 3. Quick SSDP probe (2 second timeout) ----
+    try:
+        probe_timeout = 2
+        msg = "\r\n".join([
+            "M-SEARCH * HTTP/1.1",
+            "HOST:239.255.255.250:1900",
+            'MAN:"ssdp:discover"',
+            "MX:1",
+            "ST:ssdp:all",
+            "", ""
+        ])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.settimeout(probe_timeout)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        sock.sendto(msg.encode(), ("239.255.255.250", 1900))
+        result["ssdp_probe"]["sent"] = True
+
+        start = time.time()
+        devices = []
+        while time.time() - start < probe_timeout:
+            try:
+                data, addr = sock.recvfrom(4096)
+                devices.append(addr[0])
+            except socket.timeout:
+                break
+        sock.close()
+        result["ssdp_probe"]["responses"] = len(devices)
+        result["ssdp_probe"]["devices"] = list(set(devices))
+    except Exception as exc:
+        result["ssdp_probe"]["error"] = str(exc)
+
+    # ---- 4. Can Zeroconf initialize? ----
+    try:
+        from zeroconf import Zeroconf
+        zc = Zeroconf()
+        zc.close()
+        result["mdns_socket"] = {"ok": True, "error": None}
+    except Exception as exc:
+        result["mdns_socket"] = {"ok": False, "error": str(exc)}
+
+    return result
+
+
 def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
     if settings.api_key and x_api_key != settings.api_key:
         raise HTTPException(status_code=401, detail="Unauthorized")

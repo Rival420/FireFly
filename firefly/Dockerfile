@@ -1,9 +1,18 @@
-FROM node:18-alpine
+# =============================================================
+# Stage 1 — Build the React app (runs once during docker build)
+# =============================================================
+FROM node:18-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-ARG USE_NPM_CI=true
-RUN if [ "$USE_NPM_CI" = "true" ]; then npm ci; else npm install; fi
+RUN npm ci --ignore-scripts
 COPY . .
-ENV PORT=3000 HOST=0.0.0.0
+RUN npm run build
+
+# =============================================================
+# Stage 2 — Serve static files with nginx (starts in <1 second)
+# =============================================================
+FROM nginx:stable-alpine
+COPY --from=build /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["nginx", "-g", "daemon off;"]

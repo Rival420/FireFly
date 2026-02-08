@@ -56,6 +56,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_RAW          # needed for multicast group joins (Zeroconf/mDNS)
+      - NET_BIND_SERVICE  # not strictly needed (port 8000) but harmless
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
@@ -70,8 +73,6 @@ services:
   frontend:
     build:
       context: ./firefly
-      args:
-        USE_NPM_CI: "false"
     container_name: firefly-frontend
     ports:
       - "3001:3000"
@@ -81,10 +82,15 @@ services:
       - firefly
     healthcheck:
       test: ["CMD", "sh", "-c", "wget -qO- http://127.0.0.1:3000 >/dev/null 2>&1 || exit 1"]
-      interval: 30s
+      interval: 15s
       timeout: 3s
-      retries: 5
-      start_period: 15s
+      retries: 3
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16m
+      - /var/cache/nginx:noexec,nosuid,size=32m
+      - /run:noexec,nosuid,size=1m
 
 networks:
   firefly: {}
