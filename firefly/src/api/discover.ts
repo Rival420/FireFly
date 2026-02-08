@@ -2,7 +2,7 @@ import { apiClient } from './client';
 import type { DiscoverResponse } from '../types';
 
 export interface DiscoverParams {
-  protocol?: 'all' | 'upnp' | 'mdns' | 'wsd';
+  protocol?: 'all' | 'upnp' | 'mdns' | 'wsd' | 'mqtt' | 'coap';
   timeout?: number;
   mdns_service?: string;
   upnp_st?: string;

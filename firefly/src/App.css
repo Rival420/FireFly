@@ -32,6 +32,12 @@
   --purple: #a855f7;
   --purple-dim: rgba(168, 85, 247, 0.12);
   --purple-glow: rgba(168, 85, 247, 0.4);
+  --orange: #f97316;
+  --orange-dim: rgba(249, 115, 22, 0.12);
+  --orange-glow: rgba(249, 115, 22, 0.4);
+  --teal: #14b8a6;
+  --teal-dim: rgba(20, 184, 166, 0.12);
+  --teal-glow: rgba(20, 184, 166, 0.4);
   --amber: #f59e0b;
 
   /* Text */
@@ -64,6 +70,8 @@
   --glow-cyan: 0 0 20px var(--cyan-dim), 0 0 60px rgba(0, 212, 255, 0.04);
   --glow-green: 0 0 20px var(--green-dim), 0 0 60px rgba(0, 255, 136, 0.04);
   --glow-purple: 0 0 20px var(--purple-dim), 0 0 60px rgba(168, 85, 247, 0.04);
+  --glow-orange: 0 0 20px var(--orange-dim), 0 0 60px rgba(249, 115, 22, 0.04);
+  --glow-teal: 0 0 20px var(--teal-dim), 0 0 60px rgba(20, 184, 166, 0.04);
 
   /* Transition */
   --transition-fast: 150ms ease;
@@ -312,6 +320,18 @@ body {
 .protocol-card.wsd:hover { box-shadow: var(--glow-purple); border-color: rgba(168, 85, 247, 0.15); }
 .protocol-card.wsd .protocol-icon { color: var(--purple); background: var(--purple-dim); }
 .protocol-card.wsd .protocol-tag { color: var(--purple); background: var(--purple-dim); }
+
+/* MQTT accent */
+.protocol-card.mqtt::before { background: linear-gradient(90deg, var(--orange), transparent 80%); }
+.protocol-card.mqtt:hover { box-shadow: var(--glow-orange); border-color: rgba(249, 115, 22, 0.15); }
+.protocol-card.mqtt .protocol-icon { color: var(--orange); background: var(--orange-dim); }
+.protocol-card.mqtt .protocol-tag { color: var(--orange); background: var(--orange-dim); }
+
+/* CoAP accent */
+.protocol-card.coap::before { background: linear-gradient(90deg, var(--teal), transparent 80%); }
+.protocol-card.coap:hover { box-shadow: var(--glow-teal); border-color: rgba(20, 184, 166, 0.15); }
+.protocol-card.coap .protocol-icon { color: var(--teal); background: var(--teal-dim); }
+.protocol-card.coap .protocol-tag { color: var(--teal); background: var(--teal-dim); }
 
 .protocol-card-header {
   display: flex;
@@ -621,6 +641,8 @@ body {
 .result-card-accent.upnp { background: linear-gradient(90deg, var(--cyan), transparent 70%); }
 .result-card-accent.mdns { background: linear-gradient(90deg, var(--green), transparent 70%); }
 .result-card-accent.wsd { background: linear-gradient(90deg, var(--purple), transparent 70%); }
+.result-card-accent.mqtt { background: linear-gradient(90deg, var(--orange), transparent 70%); }
+.result-card-accent.coap { background: linear-gradient(90deg, var(--teal), transparent 70%); }
 
 .result-card-body {
   padding: var(--space-md) var(--space-lg) var(--space-lg);
@@ -665,6 +687,8 @@ body {
 .result-protocol-badge.upnp { color: var(--cyan); background: var(--cyan-dim); }
 .result-protocol-badge.mdns { color: var(--green); background: var(--green-dim); }
 .result-protocol-badge.wsd { color: var(--purple); background: var(--purple-dim); }
+.result-protocol-badge.mqtt { color: var(--orange); background: var(--orange-dim); }
+.result-protocol-badge.coap { color: var(--teal); background: var(--teal-dim); }
 
 .result-fields {
   display: flex;
@@ -1099,6 +1123,65 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   white-space: nowrap;
+}
+
+/* Risk flags */
+.risk-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+
+.risk-flag {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 0, 102, 0.08);
+  color: var(--magenta);
+  border: 1px solid rgba(255, 0, 102, 0.15);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+/* Stat chips (MQTT / CoAP inline stats) */
+.stat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+
+.stat-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  white-space: nowrap;
+}
+
+.stat-chip--ok {
+  color: var(--green);
+  background: rgba(0, 255, 136, 0.06);
+  border-color: rgba(0, 255, 136, 0.12);
+}
+
+.stat-chip--warn {
+  color: var(--orange);
+  background: rgba(249, 115, 22, 0.06);
+  border-color: rgba(249, 115, 22, 0.12);
+}
+
+.stat-chip--danger {
+  color: var(--magenta);
+  background: rgba(255, 0, 102, 0.06);
+  border-color: rgba(255, 0, 102, 0.12);
 }
 
 .category-camera       { color: #f87171; background: rgba(248, 113, 113, 0.12); }

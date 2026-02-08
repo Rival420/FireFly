@@ -23,13 +23,15 @@ import StopIcon from '@mui/icons-material/Stop';
 import RouterIcon from '@mui/icons-material/Router';
 import DnsIcon from '@mui/icons-material/Dns';
 import VideocamIcon from '@mui/icons-material/Videocam';
+import HubIcon from '@mui/icons-material/Hub';
+import SensorsIcon from '@mui/icons-material/Sensors';
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { discover } from './api/discover';
 import { apiClient } from './api/client';
-import type { DiscoverResponse, ProtocolKey, UPnPDevice, MDNSService, WSDDevice } from './types';
+import type { DiscoverResponse, ProtocolKey, UPnPDevice, MDNSService, WSDDevice, MQTTBroker, CoAPDevice } from './types';
 import { loadSettings, saveSettings } from './settings';
 import './App.css';
 
@@ -90,6 +92,24 @@ const PROTOCOLS: {
     discovers: ['IP Cameras', 'ONVIF Devices', 'Network Printers'],
     Icon: VideocamIcon,
   },
+  {
+    key: 'mqtt',
+    name: 'MQTT',
+    port: 'TCP 1883 / 8883 (TLS)',
+    description:
+      'MQTT broker scanning probes discovered IPs for active message brokers, checks anonymous access, harvests $SYS topics, and identifies security risks like open publish permissions.',
+    discovers: ['MQTT Brokers', 'IoT Hubs', 'Home Automation', 'Industrial SCADA'],
+    Icon: HubIcon,
+  },
+  {
+    key: 'coap',
+    name: 'CoAP',
+    port: 'UDP 5683 / DTLS 5684',
+    description:
+      'Constrained Application Protocol discovery queries /.well-known/core to enumerate resources on lightweight IoT devices, sensors, and actuators in resource-constrained networks.',
+    discovers: ['IoT Sensors', 'Smart Lighting', 'Actuators', 'Edge Devices'],
+    Icon: SensorsIcon,
+  },
 ];
 
 /* ----------------------------------------------------------------
@@ -99,11 +119,11 @@ const API_URL =
   (process.env.REACT_APP_API_URL as string | undefined) ||
   `${window.location.protocol}//${window.location.hostname}:8000`;
 
-const emptyResults: DiscoverResponse = { upnp: [], mdns: [], wsd: [] };
+const emptyResults: DiscoverResponse = { upnp: [], mdns: [], wsd: [], mqtt: [], coap: [] };
 type PageSize = 12 | 24 | 48;
 
 function totalDevices(d: DiscoverResponse): number {
-  return d.upnp.length + d.mdns.length + d.wsd.length;
+  return d.upnp.length + d.mdns.length + d.wsd.length + d.mqtt.length + d.coap.length;
 }
 
 /* ----------------------------------------------------------------
@@ -125,12 +145,16 @@ function mergeByKey<T>(existing: T[], incoming: T[], keyFn: (item: T) => string)
 const upnpKey = (d: UPnPDevice): string => d.USN || `${d.address ?? ''}|${d.LOCATION ?? ''}`;
 const mdnsKey = (d: MDNSService): string => d.name || '';
 const wsdKey = (d: WSDDevice): string => d.address;
+const mqttKey = (d: MQTTBroker): string => `${d.address}:${d.port}`;
+const coapKey = (d: CoAPDevice): string => `${d.address}:${d.port}`;
 
 function mergeResults(existing: DiscoverResponse, incoming: DiscoverResponse): DiscoverResponse {
   return {
     upnp: mergeByKey(existing.upnp, incoming.upnp, upnpKey),
     mdns: mergeByKey(existing.mdns, incoming.mdns, mdnsKey),
     wsd: mergeByKey(existing.wsd, incoming.wsd, wsdKey),
+    mqtt: mergeByKey(existing.mqtt, incoming.mqtt, mqttKey),
+    coap: mergeByKey(existing.coap, incoming.coap, coapKey),
   };
 }
 
@@ -285,13 +309,21 @@ export default function App(): JSX.Element {
   }, [showRaw, activeTab, pageSize, enrich]);
 
   /* ---- Derived data ---- */
-  const counts = { upnp: devices.upnp.length, mdns: devices.mdns.length, wsd: devices.wsd.length };
+  const counts = {
+    upnp: devices.upnp.length,
+    mdns: devices.mdns.length,
+    wsd: devices.wsd.length,
+    mqtt: devices.mqtt.length,
+    coap: devices.coap.length,
+  };
 
   const protocolTabs: { key: 'all' | ProtocolKey; label: string }[] = [
     { key: 'all', label: `All (${deviceCount})` },
     { key: 'upnp', label: `UPnP (${counts.upnp})` },
     { key: 'mdns', label: `mDNS (${counts.mdns})` },
     { key: 'wsd', label: `WSD (${counts.wsd})` },
+    { key: 'mqtt', label: `MQTT (${counts.mqtt})` },
+    { key: 'coap', label: `CoAP (${counts.coap})` },
   ];
 
   const entriesAll =
@@ -380,17 +412,38 @@ export default function App(): JSX.Element {
     }
   };
 
+  /* ---- Helper: format uptime ---- */
+  const formatUptime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+  };
+
   /* ---- Render a single device card ---- */
   const renderDeviceCard = (proto: ProtocolKey, device: any, index: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     const fp = device.fingerprint;
-    const name = fp?.manufacturer && fp?.model
-      ? `${fp.manufacturer} ${fp.model}`
-      : device.name || device.friendlyName || 'Unknown Device';
-    const type = device.type || device.ST || device.deviceType || '';
+    const isMqtt = proto === 'mqtt';
+    const isCoap = proto === 'coap';
+
+    /* Determine device name */
+    let name: string;
+    if (fp?.manufacturer && fp?.model) {
+      name = `${fp.manufacturer} ${fp.model}`;
+    } else if (isMqtt) {
+      name = device.broker_name || `MQTT Broker @ ${device.address}`;
+    } else if (isCoap) {
+      name = device.device_type || `CoAP Device @ ${device.address}`;
+    } else {
+      name = device.name || device.friendlyName || 'Unknown Device';
+    }
+
+    const type = device.type || device.ST || device.deviceType || (isMqtt && device.broker_version ? `v${device.broker_version}` : '') || (isCoap && device.firmware ? device.firmware : '') || '';
     const category: string | undefined = fp?.device_category;
     const tags: string[] = fp?.device_tags || [];
     const services: any[] = fp?.services || []; // eslint-disable-line @typescript-eslint/no-explicit-any
     const banners: Record<string, string> = fp?.banners || {};
+    const riskFlags: string[] = device.risk_flags || [];
 
     return (
       <div className="result-card" key={`${proto}-${index}`} style={{ animationDelay: `${index * 40}ms` }}>
@@ -409,6 +462,57 @@ export default function App(): JSX.Element {
               <span className={`result-protocol-badge ${proto}`}>{proto}</span>
             </div>
           </div>
+
+          {/* MQTT: security & stats chips */}
+          {isMqtt && (
+            <div className="stat-chips">
+              <span className={`stat-chip ${device.anonymous_access ? 'stat-chip--danger' : 'stat-chip--ok'}`}>
+                {device.anonymous_access ? 'Anon Access' : 'Auth Required'}
+              </span>
+              {device.anonymous_publish && (
+                <span className="stat-chip stat-chip--danger">Anon Publish</span>
+              )}
+              <span className={`stat-chip ${device.tls_supported ? 'stat-chip--ok' : 'stat-chip--warn'}`}>
+                {device.tls_supported ? 'TLS' : 'No TLS'}
+              </span>
+              {device.connected_clients != null && (
+                <span className="stat-chip">{device.connected_clients} clients</span>
+              )}
+              {device.uptime_seconds != null && (
+                <span className="stat-chip">Up {formatUptime(device.uptime_seconds)}</span>
+              )}
+              {device.topic_count > 0 && (
+                <span className="stat-chip">{device.topic_count} topics</span>
+              )}
+            </div>
+          )}
+
+          {/* CoAP: capability chips */}
+          {isCoap && (
+            <div className="stat-chips">
+              <span className={`stat-chip ${device.unauthenticated_access ? 'stat-chip--danger' : 'stat-chip--ok'}`}>
+                {device.unauthenticated_access ? 'No Auth' : 'Auth Required'}
+              </span>
+              <span className={`stat-chip ${device.dtls_supported ? 'stat-chip--ok' : 'stat-chip--warn'}`}>
+                {device.dtls_supported ? 'DTLS' : 'No DTLS'}
+              </span>
+              {device.resources?.length > 0 && (
+                <span className="stat-chip">{device.resources.length} resources</span>
+              )}
+              {device.observable_resources?.length > 0 && (
+                <span className="stat-chip">{device.observable_resources.length} observable</span>
+              )}
+            </div>
+          )}
+
+          {/* Risk flags (MQTT & CoAP) */}
+          {riskFlags.length > 0 && (
+            <div className="risk-flags">
+              {riskFlags.map((flag) => (
+                <span className="risk-flag" key={flag}>{flag}</span>
+              ))}
+            </div>
+          )}
 
           {/* Fingerprint summary (when enriched) */}
           {fp && (
@@ -454,6 +558,43 @@ export default function App(): JSX.Element {
               </div>
             )}
 
+            {/* MQTT: broker name & version */}
+            {isMqtt && device.broker_name && (
+              <div className="result-field">
+                <span className="result-field-label">Broker</span>
+                <span className="result-field-value">
+                  {device.broker_name}{device.broker_version ? ` v${device.broker_version}` : ''}
+                </span>
+              </div>
+            )}
+
+            {/* MQTT: message stats */}
+            {isMqtt && (device.messages_received != null || device.messages_sent != null) && (
+              <div className="result-field">
+                <span className="result-field-label">Msgs</span>
+                <span className="result-field-value">
+                  {device.messages_received != null ? `↓${device.messages_received.toLocaleString()}` : ''}
+                  {device.messages_received != null && device.messages_sent != null ? ' / ' : ''}
+                  {device.messages_sent != null ? `↑${device.messages_sent.toLocaleString()}` : ''}
+                </span>
+              </div>
+            )}
+
+            {/* CoAP: device type & firmware */}
+            {isCoap && device.device_type && (
+              <div className="result-field">
+                <span className="result-field-label">Type</span>
+                <span className="result-field-value">{device.device_type}</span>
+              </div>
+            )}
+
+            {isCoap && device.firmware && (
+              <div className="result-field">
+                <span className="result-field-label">FW</span>
+                <span className="result-field-value">{device.firmware}</span>
+              </div>
+            )}
+
             {device.LOCATION && (
               <div className="result-field">
                 <span className="result-field-label">Loc</span>
@@ -495,6 +636,59 @@ export default function App(): JSX.Element {
               </div>
             )}
           </div>
+
+          {/* Expandable: MQTT sampled topics */}
+          {isMqtt && device.sampled_topics && device.sampled_topics.length > 0 && (
+            <details className="result-expandable">
+              <summary>Sampled Topics ({device.sampled_topics.length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                {device.sampled_topics.map((topic: string, i: number) => (
+                  <div className="result-field" key={i}>
+                    <span className="result-field-value" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>
+                      {topic}
+                    </span>
+                    <IconButton size="small" className="result-copy-btn" onClick={() => copyText(topic)}>
+                      <ContentCopyIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Expandable: CoAP resources */}
+          {isCoap && device.resources && device.resources.length > 0 && (
+            <details className="result-expandable">
+              <summary>Resources ({device.resources.length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                {device.resources.map((res: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                  <div className="result-field" key={i}>
+                    <span className="result-field-label" style={{ minWidth: 'auto' }}>
+                      {res.uri}
+                    </span>
+                    <span className="result-field-value">
+                      {res.title || res.rt || ''}{res.observable ? ' (obs)' : ''}{res.ct ? ` [ct=${res.ct}]` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Expandable: MQTT/CoAP metadata */}
+          {(isMqtt || isCoap) && device.metadata && Object.keys(device.metadata).length > 0 && (
+            <details className="result-expandable">
+              <summary>Metadata ({Object.keys(device.metadata).length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8 }}>
+                {Object.entries(device.metadata).map(([k, v]) => (
+                  <div className="result-field" key={k}>
+                    <span className="result-field-label" style={{ minWidth: 'auto' }}>{k}</span>
+                    <span className="result-field-value">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
 
           {/* Expandable: Services (from enrichment) */}
           {services.length > 0 && (
@@ -569,7 +763,7 @@ export default function App(): JSX.Element {
           <p className="cyber-subtitle">IoT Device Discovery Platform</p>
           <p className="cyber-tagline">
             Multi-protocol network scanner for discovering IoT devices using UPnP, mDNS,
-            and WS-Discovery with enterprise-grade SSRF protection, rate limiting,
+            WS-Discovery, MQTT, and CoAP with enterprise-grade SSRF protection, rate limiting,
             and optional API key authentication.
           </p>
           <div
@@ -635,6 +829,8 @@ export default function App(): JSX.Element {
                 <MenuItem value="upnp">UPnP / SSDP</MenuItem>
                 <MenuItem value="mdns">mDNS / Zeroconf</MenuItem>
                 <MenuItem value="wsd">WS-Discovery</MenuItem>
+                <MenuItem value="mqtt">MQTT</MenuItem>
+                <MenuItem value="coap">CoAP</MenuItem>
               </Select>
             </FormControl>
 
