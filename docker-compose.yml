@@ -76,8 +76,6 @@ services:
     container_name: firefly-frontend
     ports:
       - "3001:3000"
-    depends_on:
-      - backend
     networks:
       - firefly
     healthcheck:
