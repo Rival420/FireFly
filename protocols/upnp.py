@@ -57,6 +57,7 @@ class UPnPDiscovery:
             logging.debug("Sending SSDP M-SEARCH message:\n%s", message)
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(self.timeout)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, self.multicast_ttl)
         # If a specific interface is requested, bind and set multicast interface

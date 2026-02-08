@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   TextField,
   Select,
@@ -15,6 +15,7 @@ import {
   Pagination,
   Button,
   IconButton,
+  Chip,
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -23,11 +24,12 @@ import RouterIcon from '@mui/icons-material/Router';
 import DnsIcon from '@mui/icons-material/Dns';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SearchIcon from '@mui/icons-material/Search';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { discover } from './api/discover';
 import { apiClient } from './api/client';
-import type { DiscoverResponse, ProtocolKey } from './types';
+import type { DiscoverResponse, ProtocolKey, UPnPDevice, MDNSService, WSDDevice } from './types';
 import { loadSettings, saveSettings } from './settings';
 import './App.css';
 
@@ -104,6 +106,34 @@ function totalDevices(d: DiscoverResponse): number {
   return d.upnp.length + d.mdns.length + d.wsd.length;
 }
 
+/* ----------------------------------------------------------------
+   Merge helpers — accumulate results across scans by device identity
+   ---------------------------------------------------------------- */
+
+function mergeByKey<T>(existing: T[], incoming: T[], keyFn: (item: T) => string): T[] {
+  const map = new Map<string, T>();
+  for (const item of existing) {
+    map.set(keyFn(item) || JSON.stringify(item), item);
+  }
+  // Incoming (newer) data overwrites existing entries with the same key
+  for (const item of incoming) {
+    map.set(keyFn(item) || JSON.stringify(item), item);
+  }
+  return Array.from(map.values());
+}
+
+const upnpKey = (d: UPnPDevice): string => d.USN || `${d.address ?? ''}|${d.LOCATION ?? ''}`;
+const mdnsKey = (d: MDNSService): string => d.name || '';
+const wsdKey = (d: WSDDevice): string => d.address;
+
+function mergeResults(existing: DiscoverResponse, incoming: DiscoverResponse): DiscoverResponse {
+  return {
+    upnp: mergeByKey(existing.upnp, incoming.upnp, upnpKey),
+    mdns: mergeByKey(existing.mdns, incoming.mdns, mdnsKey),
+    wsd: mergeByKey(existing.wsd, incoming.wsd, wsdKey),
+  };
+}
+
 /* ================================================================
    App
    ================================================================ */
@@ -132,6 +162,10 @@ export default function App(): JSX.Element {
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [hasScanned, setHasScanned] = useState(false);
 
+  /* ---- Accumulated results (persisted across scans) ---- */
+  const [accumulatedResults, setAccumulatedResults] = useState<DiscoverResponse>(emptyResults);
+  const [scanCount, setScanCount] = useState(0);
+
   /* ---- Progress ---- */
   const [progress, setProgress] = useState(0);
   const progressRef = useRef<{ timer: ReturnType<typeof setInterval> | null; start: number }>({
@@ -159,10 +193,9 @@ export default function App(): JSX.Element {
   }, []);
 
   /* ---- React Query — discovery ---- */
-  const queryKey = [
-    'discover',
-    { protocol, timeoutVal, mdnsService, upnpST, upnpMX, upnpTTL, interfaceIp },
-  ] as const;
+  // Stable queryKey so changing scan parameters never discards cached results.
+  // The actual parameters are captured by the queryFn closure on each render.
+  const queryKey = ['discover'] as const;
 
   const {
     data,
@@ -170,6 +203,7 @@ export default function App(): JSX.Element {
     isError,
     error: queryError,
     refetch,
+    dataUpdatedAt,
   } = useQuery<DiscoverResponse>({
     queryKey,
     enabled: false,
@@ -187,14 +221,28 @@ export default function App(): JSX.Element {
         },
         signal as AbortSignal | undefined,
       ),
-    staleTime: 30_000,
-    gcTime: 5 * 60_000,
+    staleTime: 0,
+    gcTime: 0,
     retry: 1,
-    placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   });
 
-  const devices: DiscoverResponse = data ?? emptyResults;
+  /* ---- Merge incoming scan results into the accumulated set ---- */
+  const lastMergedAt = useRef(0);
+  useEffect(() => {
+    if (data && dataUpdatedAt > lastMergedAt.current) {
+      lastMergedAt.current = dataUpdatedAt;
+      setAccumulatedResults((prev) => mergeResults(prev, data));
+      setScanCount((c) => c + 1);
+      const incoming = totalDevices(data);
+      if (incoming > 0) {
+        showToast(`Scan complete — ${incoming} device${incoming !== 1 ? 's' : ''} found`, 'success');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, dataUpdatedAt]);
+
+  const devices: DiscoverResponse = accumulatedResults;
   const deviceCount = totalDevices(devices);
 
   /* ---- Surface query errors ---- */
@@ -277,6 +325,16 @@ export default function App(): JSX.Element {
       /* noop */
     }
   };
+
+  const clearResults = useCallback(() => {
+    setAccumulatedResults(emptyResults);
+    setScanCount(0);
+    setHasScanned(false);
+    setPage(1);
+    queryClient.removeQueries({ queryKey });
+    showToast('Results cleared', 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient]);
 
   const showToast = (msg: string, severity: 'error' | 'success' | 'info' = 'error') => {
     setToastMsg(msg);
@@ -674,6 +732,37 @@ export default function App(): JSX.Element {
                 </span>
               }
             />
+            {deviceCount > 0 && (
+              <>
+                <Chip
+                  label={`${deviceCount} device${deviceCount !== 1 ? 's' : ''} from ${scanCount} scan${scanCount !== 1 ? 's' : ''}`}
+                  size="small"
+                  sx={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.7rem',
+                    letterSpacing: '0.5px',
+                    color: 'var(--text-secondary)',
+                    borderColor: 'var(--border)',
+                  }}
+                  variant="outlined"
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteSweepIcon sx={{ fontSize: 16 }} />}
+                  onClick={clearResults}
+                  sx={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.7rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                  }}
+                >
+                  Clear
+                </Button>
+              </>
+            )}
           </div>
 
           {isFetching && (

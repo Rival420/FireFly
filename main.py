@@ -307,7 +307,6 @@ def discover(
 
     # mDNS Discovery
     if query.protocol in ("all", "mdns"):
-        mdns_results = []
         if query.mdns_service.lower() == "all":
             well_known_services = [
                 "_services._dns-sd._udp.local.",
@@ -316,13 +315,18 @@ def discover(
                 "_ipp._tcp.local.",
                 "_printer._tcp.local.",
             ]
-            for service in well_known_services:
-                mdns_results.extend(
-                    mdns.MDNSDiscovery(timeout=query.timeout, service_type=service, interface_ip=query.interface_ip).discover()
-                )
+            # Browse all service types simultaneously with a single Zeroconf
+            # instance — avoids the old sequential loop that created/destroyed
+            # five separate instances and left sockets in TIME_WAIT.
+            mdns_results = mdns.MDNSDiscovery(
+                timeout=query.timeout,
+                interface_ip=query.interface_ip,
+            ).discover(service_types=well_known_services)
         else:
             mdns_results = mdns.MDNSDiscovery(
-                timeout=query.timeout, service_type=query.mdns_service, interface_ip=query.interface_ip
+                timeout=query.timeout,
+                service_type=query.mdns_service,
+                interface_ip=query.interface_ip,
             ).discover()
         results["mdns"] = mdns_results
 

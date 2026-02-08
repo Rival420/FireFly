@@ -47,6 +47,7 @@ class WSDiscovery:
 
         # Create a UDP socket.
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(self.timeout)
         try:
             if self.interface_ip:
