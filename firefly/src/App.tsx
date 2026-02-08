@@ -119,6 +119,7 @@ export default function App(): JSX.Element {
   const [upnpST, setUpnpST] = useState<string>(initial.upnpST);
   const [upnpMX, setUpnpMX] = useState<number>(initial.upnpMX);
   const [upnpTTL, setUpnpTTL] = useState<number>(initial.upnpTTL);
+  const [enrich, setEnrich] = useState<boolean>(initial.enrich);
 
   /* ---- UI state ---- */
   const [toastMsg, setToastMsg] = useState('');
@@ -182,6 +183,7 @@ export default function App(): JSX.Element {
           upnp_mx: upnpMX,
           upnp_ttl: upnpTTL,
           interface_ip: interfaceIp || undefined,
+          enrich: enrich || undefined,
         },
         signal as AbortSignal | undefined,
       ),
@@ -231,8 +233,8 @@ export default function App(): JSX.Element {
 
   /* ---- Persist UI prefs ---- */
   useEffect(() => {
-    saveSettings({ showRaw, activeTab, pageSize });
-  }, [showRaw, activeTab, pageSize]);
+    saveSettings({ showRaw, activeTab, pageSize, enrich });
+  }, [showRaw, activeTab, pageSize, enrich]);
 
   /* ---- Derived data ---- */
   const counts = { upnp: devices.upnp.length, mdns: devices.mdns.length, wsd: devices.wsd.length };
@@ -322,21 +324,51 @@ export default function App(): JSX.Element {
 
   /* ---- Render a single device card ---- */
   const renderDeviceCard = (proto: ProtocolKey, device: any, index: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    const name = device.name || device.friendlyName || 'Unknown Device';
+    const fp = device.fingerprint;
+    const name = fp?.manufacturer && fp?.model
+      ? `${fp.manufacturer} ${fp.model}`
+      : device.name || device.friendlyName || 'Unknown Device';
     const type = device.type || device.ST || device.deviceType || '';
+    const category: string | undefined = fp?.device_category;
+    const tags: string[] = fp?.device_tags || [];
+    const services: any[] = fp?.services || []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const banners: Record<string, string> = fp?.banners || {};
 
     return (
       <div className="result-card" key={`${proto}-${index}`} style={{ animationDelay: `${index * 40}ms` }}>
         <div className={`result-card-accent ${proto}`} />
         <div className="result-card-body">
-          {/* Header: name + badge */}
+          {/* Header: name + badges */}
           <div className="result-card-header">
             <div>
               <div className="result-device-name">{name}</div>
               {type && <div className="result-device-type">{type}</div>}
             </div>
-            <span className={`result-protocol-badge ${proto}`}>{proto}</span>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {category && category !== 'unknown' && (
+                <span className={`category-badge category-${category}`}>{category}</span>
+              )}
+              <span className={`result-protocol-badge ${proto}`}>{proto}</span>
+            </div>
           </div>
+
+          {/* Fingerprint summary (when enriched) */}
+          {fp && (
+            <div className="fingerprint-summary">
+              {fp.manufacturer && <span className="fp-chip">{fp.manufacturer}</span>}
+              {fp.model && <span className="fp-chip">{fp.model}</span>}
+              {fp.firmware_version && <span className="fp-chip">FW {fp.firmware_version}</span>}
+              {fp.os_guess && <span className="fp-chip fp-chip--os">{fp.os_guess}</span>}
+              {services.length > 0 && <span className="fp-chip fp-chip--svc">{services.length} services</span>}
+            </div>
+          )}
+
+          {/* Tags */}
+          {tags.length > 0 && (
+            <div className="fingerprint-tags">
+              {tags.map((t) => <span className="fp-tag" key={t}>{t}</span>)}
+            </div>
+          )}
 
           {/* Fields */}
           <div className="result-fields">
@@ -374,6 +406,23 @@ export default function App(): JSX.Element {
               </div>
             )}
 
+            {fp?.device_url && !device.LOCATION && (
+              <div className="result-field">
+                <span className="result-field-label">URL</span>
+                <span className="result-field-value">{fp.device_url}</span>
+                <IconButton size="small" className="result-copy-btn" onClick={() => copyText(fp.device_url)}>
+                  <ContentCopyIcon sx={{ fontSize: 13 }} />
+                </IconButton>
+              </div>
+            )}
+
+            {fp?.serial_number && (
+              <div className="result-field">
+                <span className="result-field-label">S/N</span>
+                <span className="result-field-value">{fp.serial_number}</span>
+              </div>
+            )}
+
             {device.USN && (
               <div className="result-field">
                 <span className="result-field-label">USN</span>
@@ -388,6 +437,38 @@ export default function App(): JSX.Element {
               </div>
             )}
           </div>
+
+          {/* Expandable: Services (from enrichment) */}
+          {services.length > 0 && (
+            <details className="result-expandable">
+              <summary>Services ({services.length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                {services.map((svc: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                  <div className="result-field" key={i}>
+                    <span className="result-field-label" style={{ minWidth: 'auto' }}>
+                      :{svc.port}
+                    </span>
+                    <span className="result-field-value">
+                      {svc.name}{svc.tls ? ' (TLS)' : ''}{svc.banner ? ` — ${svc.banner.slice(0, 80)}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Expandable: Banners (from enrichment) */}
+          {Object.keys(banners).length > 0 && (
+            <details className="result-expandable">
+              <summary>Banners ({Object.keys(banners).length})</summary>
+              {Object.entries(banners).map(([port, banner]) => (
+                <div key={port} style={{ marginTop: 6 }}>
+                  <div className="result-field-label" style={{ marginBottom: 2 }}>Port {port}</div>
+                  <pre>{banner}</pre>
+                </div>
+              ))}
+            </details>
+          )}
 
           {/* Expandable: mDNS properties */}
           {device.properties && Object.keys(device.properties).length > 0 && (
@@ -568,7 +649,7 @@ export default function App(): JSX.Element {
                 onClick={startScan}
                 disabled={backendStatus === 'offline'}
               >
-                Initiate Scan
+                {enrich ? 'Deep Scan' : 'Initiate Scan'}
               </button>
             ) : (
               <button className="scan-btn scan-btn--cancel" onClick={cancelScan}>
@@ -576,6 +657,23 @@ export default function App(): JSX.Element {
                 Cancel Scan
               </button>
             )}
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={enrich}
+                  onChange={(e) => setEnrich(e.target.checked)}
+                />
+              }
+              label={
+                <span className="enrich-label">
+                  Deep Scan
+                  <span className="enrich-hint">
+                    Fingerprint, banner grab, classify
+                  </span>
+                </span>
+              }
+            />
           </div>
 
           {isFetching && (

@@ -13,6 +13,7 @@ export const SettingsSchema = z.object({
   showRaw: z.boolean().default(false),
   activeTab: z.union([z.literal('all'), z.literal('upnp'), z.literal('mdns'), z.literal('wsd')]).default('all'),
   pageSize: z.union([z.literal(12), z.literal(24), z.literal(48)]).default(12),
+  enrich: z.boolean().default(false),
 });
 
 export type UISettings = z.infer<typeof SettingsSchema>;

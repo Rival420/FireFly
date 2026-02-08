@@ -1018,3 +1018,98 @@ body {
     justify-content: center;
   }
 }
+
+/* ================================================================
+   DEEP SCAN / ENRICHMENT UI
+   ================================================================ */
+
+/* Deep Scan toggle label */
+.enrich-label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+.enrich-hint {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* Fingerprint summary chips */
+.fingerprint-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+
+.fp-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  white-space: nowrap;
+}
+
+.fp-chip--os {
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+.fp-chip--svc {
+  color: var(--cyan);
+  background: var(--cyan-dim);
+  border-color: rgba(0, 212, 255, 0.15);
+}
+
+/* Fingerprint tags */
+.fingerprint-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.fp-tag {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+}
+
+/* Category badges */
+.category-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.category-camera       { color: #f87171; background: rgba(248, 113, 113, 0.12); }
+.category-nas          { color: #60a5fa; background: rgba(96, 165, 250, 0.12); }
+.category-printer      { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+.category-router       { color: var(--cyan); background: var(--cyan-dim); }
+.category-media        { color: var(--purple); background: var(--purple-dim); }
+.category-smart-home-hub { color: var(--green); background: var(--green-dim); }
+.category-smart-speaker  { color: #2dd4bf; background: rgba(45, 212, 191, 0.12); }
+.category-smart-tv     { color: #f472b6; background: rgba(244, 114, 182, 0.12); }
+.category-industrial   { color: #fb923c; background: rgba(251, 146, 60, 0.12); }
+.category-iot-device   { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); }
+.category-computer     { color: #818cf8; background: rgba(129, 140, 248, 0.12); }
+.category-unknown      { color: var(--text-muted); background: rgba(255, 255, 255, 0.03); }

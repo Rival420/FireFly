@@ -181,6 +181,7 @@ def discover(
     upnp_mx: int = Query(3, description="UPnP MX (1-5)"),
     upnp_ttl: int = Query(2, description="Multicast TTL (1-16)"),
     interface_ip: str = Query(None, description="Optional interface IP to bind to"),
+    enrich: bool = Query(False, description="Enable deep enumeration and fingerprinting"),
     _=Depends(verify_api_key),
     __=Depends(rate_limit),
 ):
@@ -195,6 +196,7 @@ def discover(
             upnp_mx=upnp_mx,
             upnp_ttl=upnp_ttl,
             interface_ip=interface_ip,
+            enrich=enrich,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -247,6 +249,19 @@ def discover(
     if query.protocol in ("all", "wsd"):
         wsd_results = ws_discovery.WSDiscovery(timeout=query.timeout, multicast_ttl=query.upnp_ttl, interface_ip=query.interface_ip).discover()
         results["wsd"] = wsd_results
+
+    # Deep enumeration & fingerprinting (when requested)
+    if query.enrich:
+        from protocols.enrichment import (
+            build_default_pipeline,
+            devices_from_results,
+            apply_enrichment,
+        )
+        pipeline = build_default_pipeline()
+        device_infos = devices_from_results(results)
+        enriched = pipeline.enrich_all(device_infos, timeout=query.timeout)
+        results = apply_enrichment(results, enriched)
+        logger.info("Enrichment complete — %d devices fingerprinted", len(enriched))
 
     return JSONResponse(content=DiscoverResponse(**results).model_dump())
 

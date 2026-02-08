@@ -9,6 +9,7 @@ export interface DiscoverParams {
   upnp_mx?: number;
   upnp_ttl?: number;
   interface_ip?: string;
+  enrich?: boolean;
 }
 
 export async function discover(params: DiscoverParams, signal?: AbortSignal): Promise<DiscoverResponse> {
