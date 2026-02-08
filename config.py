@@ -7,6 +7,17 @@ from pydantic import BaseModel, Field, ValidationError
 
 class AppSettings(BaseModel):
     allowed_origins: List[str] = Field(default_factory=lambda: _default_allowed_origins())
+    allowed_origin_regex: str | None = Field(
+        default=os.getenv(
+            "ALLOWED_ORIGIN_REGEX",
+            # Allow any private-network / localhost origin so the UI works when
+            # accessed via LAN IP (e.g. http://192.168.1.50:3001) without having
+            # to enumerate every possible IP in ALLOWED_ORIGINS.
+            r"^https?://(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+            r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+            r"|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$",
+        ),
+    )
     log_level: str = Field(default=os.getenv("LOG_LEVEL", "INFO"))
     default_timeout_seconds: int = Field(default=int(os.getenv("DEFAULT_TIMEOUT", "5")))
     max_timeout_seconds: int = Field(default=int(os.getenv("MAX_TIMEOUT", "30")))
@@ -31,5 +42,7 @@ def _default_allowed_origins() -> List[str]:
     return [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ]
 

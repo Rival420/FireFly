@@ -40,13 +40,15 @@ app.state.rate_limits = {}
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 logger = logging.getLogger("firefly")
 
-# Enable CORS for configured origins
+# Enable CORS for configured origins.
+# Also allow X-API-Key header so the optional auth works cross-origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
+    allow_origin_regex=settings.allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["GET"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 openapi_tags = [

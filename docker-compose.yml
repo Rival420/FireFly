@@ -15,6 +15,7 @@ services:
       - LOG_LEVEL=INFO
       - DEFAULT_TIMEOUT=5
       - MAX_TIMEOUT=30
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3001
     networks:
       - firefly
     healthcheck:
@@ -45,6 +46,7 @@ services:
       - LOG_LEVEL=INFO
       - DEFAULT_TIMEOUT=5
       - MAX_TIMEOUT=30
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3001
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request, sys, socket; socket.setdefaulttimeout(2); r=urllib.request.urlopen('http://127.0.0.1:8000/api/readyz'); sys.exit(0 if r.status==200 else 1)"]
       interval: 30s
@@ -72,7 +74,7 @@ services:
         USE_NPM_CI: "false"
     container_name: firefly-frontend
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8000
     depends_on:
